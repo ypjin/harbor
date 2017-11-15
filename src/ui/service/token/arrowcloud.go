@@ -13,7 +13,12 @@ import (
 	"github.com/vmware/harbor/src/ui/auth/arrowcloud"
 )
 
-// FilterPushAccessByApp filters push access based on arrowcloud app settings
+// authutils#FilterAccess checks permission against namespace (project) as standard auth server does.
+// FilterPushAccessByApp filters push access based on arrowcloud app settings.
+// * If the image name corresponds to an app name in arrowcloud db checks if the user has write
+// permission on the app.
+// * If the image name does not correspond to an app name in arrowcloud db and APP_ONLY is true
+// push will be denied. Otherwise, push is granted.
 func FilterPushAccessByApp(username string, a *token.ResourceActions) {
 
 	if !appconfig.AppCheck() {
@@ -56,6 +61,7 @@ func FilterPushAccessByApp(username string, a *token.ResourceActions) {
 	}
 }
 
+// An app document in arrowcloud database
 // {
 // 	"_id" : ObjectId("586b6bb34d1afb0022701395"),
 // 	"userid" : ObjectId("586b16bf3ad59899c6f1aa63"),
@@ -67,7 +73,9 @@ func FilterPushAccessByApp(username string, a *token.ResourceActions) {
 // 	"server_size" : "Dev",
 // 	"orgid" : "14301"
 // }
-//CheckPushPermission determines if "push" permission should be granted based on organization settings
+// CheckPushPermission determines if "push" permission should be granted based on organization settings
+// projectName: organization id
+// imageName: image name (should be same as an app name if APP_ONLY is true)
 func checkPushPermission(projectName, imageName, userEmail string) (bool, error) {
 
 	log.Debugf("check push permission by arrowcloud app. org: %s, app: %s, user: %s", projectName, imageName, userEmail)
@@ -101,13 +109,14 @@ func checkPushPermission(projectName, imageName, userEmail string) (bool, error)
 	// 	"orgs_360_updated_at" : ISODate("2017-01-01T14:01:59.274Z")
 	// }
 	orgs := user["orgs_360"].([]interface{})
-	roleByID := map[string]bool{}
+	roleByID := map[string]bool{} //role per organization
 	for _, orgI := range orgs {
 		org := orgI.(bson.M)
 		orgID := org["id"].(string)
 		roleByID[orgID] = org["node_acs_admin"].(bool)
 	}
 
+	// try to find an app by using imageName as app name
 	appQ := bson.M{
 		"name": imageName, //imageName should be same as app name
 		"$or": []interface{}{
