@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/goharbor/harbor/src/common/dao"
@@ -17,11 +18,6 @@ import (
 )
 
 const (
-	host360              = "https://platform-preprod.axwaytest.net"
-	authPath             = "/api/v1/auth/login"
-	logoutPath           = "/api/v1/auth/logout"
-	orgInfoPath          = "/api/v1/user/organizations"
-	thisEnvAdminURL      = "http://admin.cloudapp-1.appctest.com"
 	roleNameProjectAdmin = "projectAdmin"
 	roleNameDeveloper    = "developer"
 )
@@ -33,6 +29,15 @@ type Auth struct {
 
 // Authenticate user against appcelerator 360 (dashboard). This is for enterprise user only.
 func (d *Auth) Authenticate(m models.AuthModel) (*models.User, error) {
+
+	host360 := os.Getenv("DASHBOARD_HOST")
+	if len(host360) == 0 {
+		host360 = "https://platform-preprod.axwaytest.net"
+	}
+	authPath := os.Getenv("DASHBOARD_AUTHPATH")
+	if len(authPath) == 0 {
+		authPath = "/api/v1/auth/login"
+	}
 
 	loginURL := host360 + authPath
 	log.Debugf("Login user %s using password against %s...", m.Principal, loginURL)
