@@ -1,6 +1,7 @@
 package ars
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -8,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/goharbor/harbor/src/common/dao"
 	"github.com/goharbor/harbor/src/common/models"
@@ -18,8 +20,9 @@ import (
 )
 
 const (
-	roleNameProjectAdmin = "projectAdmin"
-	roleNameDeveloper    = "developer"
+	roleNameProjectAdmin        = "projectAdmin"
+	roleNameDeveloper           = "developer"
+	envVarUserOrgsCacheDuration = "USER_ORGS_CACHE_DURATION"
 )
 
 // Auth implements Authenticator interface to authenticate user against Dashboard.
@@ -174,17 +177,25 @@ func (d *Auth) Authenticate(m models.AuthModel) (*models.User, error) {
 		return nil, errors.New("authentication failed")
 	}
 
-	mUser := createUserObject(jsonBody)
+	sid := getSessionID(resp, jsonBody)
+	if sid == "" {
+		log.Error("checkAuthResponse - bad response from Appcelerator 360: no cookie info")
+		err = errors.New("bad response from Appcelerator 360: no cookie info")
+		return nil, err
+	}
+
+	mUser := createUserObject(jsonBody, sid)
 
 	return mUser, nil
 }
 
-func createUserObject(userData *gabs.Container) *models.User {
+func createUserObject(userData *gabs.Container, sid string) *models.User {
 
 	mUser := &models.User{
 		Username: userData.Path("result.username").Data().(string),
 		Email:    userData.Path("result.email").Data().(string),
 		Realname: userData.Path("result.firstname").Data().(string) + " " + userData.Path("result.lastname").Data().(string),
+		Salt:     sid, // use Salt field to save dashboard session
 	}
 
 	// "role": "administrator"
@@ -231,17 +242,86 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 	if err != nil {
 		return err
 	}
+
+	var cachedUserOrg *models.UserOrg
+	refreshOrgs := false
+
 	if dbUser == nil {
-		return d.OnBoardUser(user)
-	}
-	user.UserID = dbUser.UserID
-	user.HasAdminRole = dbUser.HasAdminRole
-	fillEmailRealName(user)
-	if err2 := dao.ChangeUserProfile(*user, "Email", "Realname"); err2 != nil {
-		log.Warningf("Failed to update user profile, user: %s, error: %v", user.Username, err2)
+		d.OnBoardUser(user)
+		refreshOrgs = true
+	} else {
+		user.UserID = dbUser.UserID
+		user.HasAdminRole = dbUser.HasAdminRole
+		fillEmailRealName(user)
+		if err2 := dao.ChangeUserProfile(*user, "Email", "Realname", "Salt"); err2 != nil {
+			log.Warningf("Failed to update user profile, user: %s, error: %v", user.Username, err2)
+		}
+
+		// TODO: if organizations were got in 5 minutes skip refreshing
+		cachedUserOrg, err := dao.GetUserOrg(user.UserID)
+		if err != nil {
+			return err
+		}
+
+		if cachedUserOrg == nil {
+			log.Warningf("Organization info not found for user %s", user.Username)
+			refreshOrgs = true
+		} else {
+			orgsCacheDur := 5 * time.Minute
+			cacheDurString := os.Getenv(envVarUserOrgsCacheDuration)
+			if cacheDurString != "" {
+				configuredDur, err := time.ParseDuration(cacheDurString)
+				if err != nil {
+					log.Warningf("invalid %s %s. will be ignored", envVarUserOrgsCacheDuration, cacheDurString)
+				} else {
+					orgsCacheDur = configuredDur
+					log.Debugf("%s: %v", envVarUserOrgsCacheDuration, configuredDur)
+				}
+			}
+
+			if time.Now().After(cachedUserOrg.UpdateTime.Add(orgsCacheDur)) {
+				log.Debugf("The organization info is older than %s for user %s. need to refresh", orgsCacheDur, user.Username)
+				refreshOrgs = true
+			} else {
+				log.Debugf("The organization info is not older than %s for user %s. no need to refresh", orgsCacheDur, user.Username)
+			}
+		}
 	}
 
-	return nil
+	if !refreshOrgs {
+		return nil
+	}
+
+	// user.Salt keeps the session ID of dashboard
+	haveAccess, orgs, err := getAndVerifyOrgInfoFrom360(user.Username, user.Salt)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+	if !haveAccess {
+		log.Errorf("PostAuthenticate - user's organizations do not have access to this domain")
+		err = errors.New("No access to this domain")
+		return err
+	}
+
+	jsonOrgs, err := json.Marshal(orgs)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+
+	mUserOrg := &models.UserOrg{
+		UserID: user.UserID,
+		Orgs:   string(jsonOrgs),
+	}
+
+	if cachedUserOrg != nil {
+		err = dao.UpdateUserOrg(mUserOrg)
+	} else {
+		_, err = dao.AddUserOrg(mUserOrg)
+	}
+
+	return err
 }
 
 // SearchUser - Check if user exist in local db

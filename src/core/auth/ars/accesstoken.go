@@ -191,7 +191,7 @@ func AuthenticateByToken(accessToken string) (*models.User, error) {
 	}
 	sessionPath360 := os.Getenv("DASHBOARD_SESSPATH")
 	if len(host360) == 0 {
-		sessionPath360 = "https://platform-preprod.axwaytest.net"
+		sessionPath360 = "/api/v1/auth/findSession"
 	}
 
 	authURL := host360 + sessionPath360
@@ -267,7 +267,7 @@ func checkAuthResponse(resp *http.Response) (user *models.User, err error) {
 		return
 	}
 
-	user = createUserObject(jsonBody)
+	user = createUserObject(jsonBody, sid)
 
 	return
 }

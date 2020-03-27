@@ -50,12 +50,13 @@ func getAndVerifyOrgInfoFrom360(username, sid string) (haveAccess bool, orgs []O
 	}
 	orgInfoPath360 := os.Getenv("DASHBOARD_ORGINFOPATH")
 	if len(host360) == 0 {
-		orgInfoPath360 = "https://platform-preprod.axwaytest.net"
+		orgInfoPath360 = "/api/v1/user/organizations"
 	}
 
-	log.Debug("Get user organization information from " + host360 + orgInfoPath360)
-
 	orgInfoURL := host360 + orgInfoPath360
+
+	log.Debugf("Get user organization information for %s from %s", username, orgInfoURL)
+	log.Debugf("dashboard session ID: %s ", sid)
 
 	//https://webcache.googleusercontent.com/search?q=cache:OVK76hrG4T8J:https://medium.com/%40nate510/don-t-use-go-s-default-http-client-4804cb19f779+&cd=4&hl=en&ct=clnk&gl=jp
 	client := http.Client{}

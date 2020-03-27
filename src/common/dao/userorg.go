@@ -21,27 +21,40 @@ import (
 	"github.com/goharbor/harbor/src/common/models"
 )
 
-// AddUserOrg add quota usage to the database.
-func AddUserOrg(userOrg models.UserOrg) (int64, error) {
+// AddUserOrg add UserOrg to the database.
+func AddUserOrg(userOrg *models.UserOrg) (int64, error) {
 	now := time.Now()
 	userOrg.CreationTime = now
 	userOrg.UpdateTime = now
 	return GetOrmer().Insert(&userOrg)
 }
 
-// GetUserOrg returns quota usage by id.
+// GetUserOrg returns UserOrg by user ID.
 func GetUserOrg(userID int) (*models.UserOrg, error) {
 	q := models.UserOrg{UserID: userID}
-	err := GetOrmer().Read(&q, "ID")
+	err := GetOrmer().Read(&q, "UserID")
 	if err == orm.ErrNoRows {
 		return nil, nil
 	}
 	return &q, err
 }
 
-// UpdateUserOrg update the quota usage.
-func UpdateUserOrg(userOrg models.UserOrg) error {
+// UpdateUserOrg update the UserOrg object.
+func UpdateUserOrg(userOrg *models.UserOrg) error {
 	userOrg.UpdateTime = time.Now()
 	_, err := GetOrmer().Update(&userOrg)
 	return err
+}
+
+// UpsertUserOrg insert or update the UserOrg object.
+func UpsertUserOrg(userOrg *models.UserOrg) error {
+	uo, err := GetUserOrg(userOrg.UserID)
+	if err != nil {
+		return err
+	}
+	if uo == nil {
+		_, err := AddUserOrg(userOrg)
+		return err
+	}
+	return UpdateUserOrg(userOrg)
 }
