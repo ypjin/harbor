@@ -174,14 +174,21 @@ func (d *Auth) Authenticate(m models.AuthModel) (*models.User, error) {
 		return nil, errors.New("authentication failed")
 	}
 
+	mUser := createUserObject(jsonBody)
+
+	return mUser, nil
+}
+
+func createUserObject(userData *gabs.Container) *models.User {
+
 	mUser := &models.User{
-		Username: jsonBody.Path("result.username").Data().(string),
-		Email:    jsonBody.Path("result.email").Data().(string),
-		Realname: jsonBody.Path("result.firstname").Data().(string) + " " + jsonBody.Path("result.lastname").Data().(string),
+		Username: userData.Path("result.username").Data().(string),
+		Email:    userData.Path("result.email").Data().(string),
+		Realname: userData.Path("result.firstname").Data().(string) + " " + userData.Path("result.lastname").Data().(string),
 	}
 
 	// "role": "administrator"
-	if jsonBody.Path("result.role").Data().(string) == "administrator" {
+	if userData.Path("result.role").Data().(string) == "administrator" {
 		mUser.Rolename = roleNameProjectAdmin
 		mUser.HasAdminRole = true
 		mUser.Role = 1
@@ -191,7 +198,7 @@ func (d *Auth) Authenticate(m models.AuthModel) (*models.User, error) {
 		mUser.Role = 2
 	}
 
-	return mUser, nil
+	return mUser
 }
 
 // OnBoardUser will check if a user exists in user table, if not insert the user and
