@@ -190,7 +190,7 @@ func AuthenticateByToken(accessToken string) (*models.User, error) {
 		host360 = "https://platform-preprod.axwaytest.net"
 	}
 	sessionPath360 := os.Getenv("DASHBOARD_SESSPATH")
-	if len(host360) == 0 {
+	if len(sessionPath360) == 0 {
 		sessionPath360 = "/api/v1/auth/findSession"
 	}
 

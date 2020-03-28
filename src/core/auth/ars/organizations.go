@@ -49,7 +49,7 @@ func getAndVerifyOrgInfoFrom360(username, sid string) (haveAccess bool, orgs []O
 		host360 = "https://platform-preprod.axwaytest.net"
 	}
 	orgInfoPath360 := os.Getenv("DASHBOARD_ORGINFOPATH")
-	if len(host360) == 0 {
+	if len(orgInfoPath360) == 0 {
 		orgInfoPath360 = "/api/v1/user/organizations"
 	}
 
@@ -73,8 +73,6 @@ func getAndVerifyOrgInfoFrom360(username, sid string) (haveAccess bool, orgs []O
 		return
 	}
 
-	//log.Debugf("resp: %v", resp)
-
 	if resp.StatusCode == 401 {
 		log.Warning("getAndVerifyOrgInfoFrom360 - Failed to get organization information. Session is invalid")
 		err = errors.New("Failed to get organization information. Session is invalid.")
@@ -96,7 +94,7 @@ func getAndVerifyOrgInfoFrom360(username, sid string) (haveAccess bool, orgs []O
 
 	jsonBody, err := gabs.ParseJSON(bodyBuf)
 	if err != nil {
-		log.Errorf("Failed to parse response body. %v", err)
+		log.Errorf("Failed to parse response body %s. %v", string(bodyBuf), err)
 		return
 	}
 

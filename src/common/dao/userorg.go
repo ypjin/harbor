@@ -26,7 +26,7 @@ func AddUserOrg(userOrg *models.UserOrg) (int64, error) {
 	now := time.Now()
 	userOrg.CreationTime = now
 	userOrg.UpdateTime = now
-	return GetOrmer().Insert(&userOrg)
+	return GetOrmer().Insert(userOrg)
 }
 
 // GetUserOrg returns UserOrg by user ID.
@@ -42,7 +42,7 @@ func GetUserOrg(userID int) (*models.UserOrg, error) {
 // UpdateUserOrg update the UserOrg object.
 func UpdateUserOrg(userOrg *models.UserOrg) error {
 	userOrg.UpdateTime = time.Now()
-	_, err := GetOrmer().Update(&userOrg)
+	_, err := GetOrmer().Update(userOrg)
 	return err
 }
 

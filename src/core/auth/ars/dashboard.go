@@ -191,11 +191,13 @@ func (d *Auth) Authenticate(m models.AuthModel) (*models.User, error) {
 
 func createUserObject(userData *gabs.Container, sid string) *models.User {
 
+	// use Realname field to save dashboard session and Salt for the realname.
+	// The realname will be set back in PostAuthenticate. No other unused fields (including Salt) are long enough for sid.
 	mUser := &models.User{
 		Username: userData.Path("result.username").Data().(string),
 		Email:    userData.Path("result.email").Data().(string),
-		Realname: userData.Path("result.firstname").Data().(string) + " " + userData.Path("result.lastname").Data().(string),
-		Salt:     sid, // use Salt field to save dashboard session
+		Salt:     userData.Path("result.firstname").Data().(string) + " " + userData.Path("result.lastname").Data().(string),
+		Realname: sid,
 	}
 
 	// "role": "administrator"
@@ -243,6 +245,12 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 		return err
 	}
 
+	// get dashboardsid and set back Realname from Salt
+	// workaround for carring the sid here
+	dashboardSid := user.Realname
+	user.Realname = user.Salt
+	user.Salt = ""
+
 	var cachedUserOrg *models.UserOrg
 	refreshOrgs := false
 
@@ -253,7 +261,7 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 		user.UserID = dbUser.UserID
 		user.HasAdminRole = dbUser.HasAdminRole
 		fillEmailRealName(user)
-		if err2 := dao.ChangeUserProfile(*user, "Email", "Realname", "Salt"); err2 != nil {
+		if err2 := dao.ChangeUserProfile(*user, "Email", "Realname"); err2 != nil {
 			log.Warningf("Failed to update user profile, user: %s, error: %v", user.Username, err2)
 		}
 
@@ -264,7 +272,7 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 		}
 
 		if cachedUserOrg == nil {
-			log.Warningf("Organization info not found for user %s", user.Username)
+			log.Warningf("No cached organization info found for user %s", user.Username)
 			refreshOrgs = true
 		} else {
 			orgsCacheDur := 5 * time.Minute
@@ -293,7 +301,7 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 	}
 
 	// user.Salt keeps the session ID of dashboard
-	haveAccess, orgs, err := getAndVerifyOrgInfoFrom360(user.Username, user.Salt)
+	haveAccess, orgs, err := getAndVerifyOrgInfoFrom360(user.Username, dashboardSid)
 	if err != nil {
 		log.Error(err)
 		return err
