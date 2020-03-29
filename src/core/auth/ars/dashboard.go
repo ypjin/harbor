@@ -266,7 +266,7 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 		}
 
 		// TODO: if organizations were got in 5 minutes skip refreshing
-		cachedUserOrg, err := dao.GetUserOrg(user.UserID)
+		cachedUserOrg, err = dao.GetUserOrg(user.UserID)
 		if err != nil {
 			return err
 		}
@@ -288,10 +288,10 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 			}
 
 			if time.Now().After(cachedUserOrg.UpdateTime.Add(orgsCacheDur)) {
-				log.Debugf("The organization info is older than %s for user %s. need to refresh", orgsCacheDur, user.Username)
+				log.Debugf("The cached organization info is older than %s for user %s. need to refresh", orgsCacheDur, user.Username)
 				refreshOrgs = true
 			} else {
-				log.Debugf("The organization info is not older than %s for user %s. no need to refresh", orgsCacheDur, user.Username)
+				log.Debugf("The cached organization info is not older than %s for user %s. no need to refresh", orgsCacheDur, user.Username)
 			}
 		}
 	}
@@ -324,8 +324,10 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 	}
 
 	if cachedUserOrg != nil {
+		log.Debugf("update orgs for user %s", user.Email)
 		err = dao.UpdateUserOrg(mUserOrg)
 	} else {
+		log.Debugf("add orgs for user %s", user.Email)
 		_, err = dao.AddUserOrg(mUserOrg)
 	}
 

@@ -157,10 +157,11 @@ func getAndVerifyOrgInfoFrom360(username, sid string) (haveAccess bool, orgs []O
 // haveAccess: If the user has access to the current cluster.
 func checkOrgs(orgArray []interface{}) (orgs []Org, haveAccess bool) {
 
-	log.Debugf("check if user's organizations have access to this domain")
 	re := regexp.MustCompile("^(http|https)://") //https://golang.org/pkg/regexp/#MustCompile
 	thisEnvAdminURL := os.Getenv("ADMIN_URL")
 	thisEnvHost := re.ReplaceAllString(thisEnvAdminURL, "")
+
+	log.Debugf("check if user's organizations have access to this domain: %s", thisEnvHost)
 
 	orgs = []Org{} //organizations which can access this domain (deployment)
 	userOrgIds := []string{}
