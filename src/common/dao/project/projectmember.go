@@ -138,6 +138,44 @@ func DeleteProjectMemberByID(pmid int) error {
 	return nil
 }
 
+// DeleteProjectMemberByEntityIDAndProjectIDs ...
+func DeleteProjectMemberByEntityIDAndProjectIDs(entityID int, projectIDs []int64) error {
+
+	o := dao.GetOrmer()
+	params := []interface{}{}
+
+	sql := "delete from project_member where entity_id = ?"
+	params = append(params, entityID)
+
+	if len(projectIDs) > 0 {
+		sql += fmt.Sprintf(` and project_id in ( %s )`,
+			dao.ParamPlaceholderForIn(len(projectIDs)))
+		params = append(params, projectIDs)
+	}
+
+	if _, err := o.Raw(sql, params).Exec(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// GetProjectMemberByProjectIDAndEntityID ...
+func GetProjectMemberByProjectIDAndEntityID(projectID int64, entityID int) ([]*models.Member, error) {
+
+	o := dao.GetOrmer()
+	sql := ` select * from project_member where a.project_id = ? and entity_id = ?`
+
+	queryParam := make([]interface{}, 1)
+	// used ProjectID already
+	queryParam = append(queryParam, projectID)
+	queryParam = append(queryParam, entityID)
+
+	members := []*models.Member{}
+	_, err := o.Raw(sql, queryParam).QueryRows(&members)
+
+	return members, err
+}
+
 // SearchMemberByName search members of the project by entity_name
 func SearchMemberByName(projectID int64, entityName string) ([]*models.Member, error) {
 	o := dao.GetOrmer()

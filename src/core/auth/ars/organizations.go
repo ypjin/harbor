@@ -13,14 +13,14 @@ import (
 )
 
 type Org struct {
-	ID             string
-	Name           string
-	Admin          bool
-	Node_acs_admin bool
+	ID       string
+	Name     string
+	Admin    bool
+	ARSAdmin bool
 }
 
 // Get organization information for user from dashboard
-func getAndVerifyOrgInfoFrom360(username, sid string) (haveAccess bool, orgs []Org, err error) {
+func getAndVerifyOrgInfoFrom360(username, sid string) (haveAccess bool, orgs map[string]Org, err error) {
 
 	// reqTimeout := 20000; //20s
 
@@ -155,7 +155,7 @@ func getAndVerifyOrgInfoFrom360(username, sid string) (haveAccess bool, orgs []O
 }
 
 // haveAccess: If the user has access to the current cluster.
-func checkOrgs(orgArray []interface{}) (orgs []Org, haveAccess bool) {
+func checkOrgs(orgArray []interface{}) (orgs map[string]Org, haveAccess bool) {
 
 	re := regexp.MustCompile("^(http|https)://") //https://golang.org/pkg/regexp/#MustCompile
 	thisEnvAdminURL := os.Getenv("ADMIN_URL")
@@ -163,15 +163,15 @@ func checkOrgs(orgArray []interface{}) (orgs []Org, haveAccess bool) {
 
 	log.Debugf("check if user's organizations have access to this domain: %s", thisEnvHost)
 
-	orgs = []Org{} //organizations which can access this domain (deployment)
+	orgs = map[string]Org{} //organizations which can access this domain (deployment)
 	userOrgIds := []string{}
 
 	for _, orgData := range orgArray {
 
 		orgDoc := orgData.(map[string]interface{})
 		orgToSave := Org{
-			Name:           orgDoc["name"].(string),
-			Node_acs_admin: false,
+			Name:     orgDoc["name"].(string),
+			ARSAdmin: false,
 		}
 
 		orgId := orgDoc["org_id"]
@@ -192,7 +192,7 @@ func checkOrgs(orgArray []interface{}) (orgs []Org, haveAccess bool) {
 		}
 
 		if orgDoc["is_node_acs_admin"] != nil {
-			orgToSave.Node_acs_admin = orgDoc["is_node_acs_admin"].(bool)
+			orgToSave.ARSAdmin = orgDoc["is_node_acs_admin"].(bool)
 		}
 
 		userOrgIds = append(userOrgIds, orgToSave.ID)
@@ -209,18 +209,13 @@ func checkOrgs(orgArray []interface{}) (orgs []Org, haveAccess bool) {
 					adminHost := re.ReplaceAllString(adminHost, "")
 					log.Debugf("org %s(%s) have access to %s", orgToSave.Name, orgToSave.ID, adminHost)
 					if adminHost == thisEnvHost {
-						orgs = append(orgs, orgToSave)
+						orgs[orgToSave.ID] = orgToSave
 						break
 					}
 				}
 			}
 		}
 	}
-
-	//workaround for testing - start
-	// userOrgIds.push('14301');
-	// orgs.push({id:'14301', name:'appcelerator Inc.', admin: true, node_acs_admin: true});
-	//workaround for testing - end
 
 	if len(orgs) < 1 {
 		log.Errorf("getAndVerifyOrgInfoFrom360 - User's organization(s) %v doesn't have access to current deployment (%s).", userOrgIds, thisEnvHost)
