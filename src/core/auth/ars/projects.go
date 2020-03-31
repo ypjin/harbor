@@ -9,7 +9,7 @@ import (
 )
 
 // compare 2 set of organizations
-func compareOrgMaps(user *models.User, cachedOrgs, freshOrgs map[string]Org) ([]Org, []Org, []Org) {
+func compareOrgMaps(cachedOrgs, freshOrgs map[string]Org) (bool, []Org, []Org, []Org) {
 
 	// Orgs the user has been added as a member
 	newOrgs := []Org{}
@@ -17,6 +17,8 @@ func compareOrgMaps(user *models.User, cachedOrgs, freshOrgs map[string]Org) ([]
 	removedOrgs := []Org{}
 	// Orgs the user's role has changed
 	updatedOrgs := []Org{}
+
+	changed := false
 
 	for orgID, org := range cachedOrgs {
 		if fresh, ok := freshOrgs[orgID]; ok {
@@ -34,7 +36,11 @@ func compareOrgMaps(user *models.User, cachedOrgs, freshOrgs map[string]Org) ([]
 		}
 	}
 
-	return newOrgs, removedOrgs, updatedOrgs
+	if len(newOrgs) > 0 || len(removedOrgs) > 0 || len(updatedOrgs) > 0 {
+		changed = true
+	}
+
+	return changed, newOrgs, removedOrgs, updatedOrgs
 }
 
 // compare 2 Org
@@ -131,6 +137,10 @@ func removeMembersAndProjects(user *models.User, removedOrgs []Org) error {
 
 	log.Debugf("removeMembersAndProjects for user %s: %+v", user.Email, removedOrgs)
 
+	if len(removedOrgs) == 0 {
+		return nil
+	}
+
 	// get project IDs by names
 	projectIDs := []int64{}
 
@@ -160,7 +170,7 @@ func removeMembersAndProjects(user *models.User, removedOrgs []Org) error {
 			log.Errorf("%v", err)
 			return err
 		}
-		if cnt == 0 {
+		if cnt == 1 { // will not be zero since we set admin as the ProjectAdmin of the projects
 			log.Warningf("project %v has no member, about to delete it", projectID)
 			err = dao.DeleteProject(projectID)
 			if err != nil {
@@ -179,6 +189,14 @@ func updateProjectMemberRole(user *models.User, updatedOrgs []Org) error {
 	log.Debugf("updateProjectMemberRole for user %s: %+v", user.Email, updatedOrgs)
 
 	for _, org := range updatedOrgs {
+
+		var newRole int
+		if org.ARSAdmin {
+			newRole = models.DEVELOPER
+		} else {
+			newRole = models.GUEST
+		}
+
 		// org ID as project name
 		proj, err := dao.GetProjectByName(org.ID)
 		if err != nil {
@@ -194,14 +212,20 @@ func updateProjectMemberRole(user *models.User, updatedOrgs []Org) error {
 
 		if len(members) == 0 {
 			log.Warningf("project member not found by project ID %v for user %v", proj.ProjectID, user.UserID)
+			// TODO create the member
+			newMember := models.Member{
+				ProjectID:  proj.ProjectID,
+				EntityID:   user.UserID,
+				EntityType: common.UserMember,
+				Role:       newRole,
+			}
+			log.Debugf("add missing member: %+v", newMember)
+			_, err = project.AddProjectMember(newMember)
+			if err != nil {
+				log.Errorf("%v", err)
+				return err
+			}
 			continue
-		}
-
-		var newRole int
-		if org.ARSAdmin {
-			newRole = models.DEVELOPER
-		} else {
-			newRole = models.GUEST
 		}
 
 		err = project.UpdateProjectMemberRole(members[0].ID, newRole)

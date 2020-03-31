@@ -301,7 +301,7 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 	}
 
 	// user.Salt keeps the session ID of dashboard
-	haveAccess, orgs, err := getAndVerifyOrgInfoFrom360(user.Username, dashboardSid)
+	haveAccess, freshOrgs, err := getAndVerifyOrgInfoFrom360(user.Username, dashboardSid)
 	if err != nil {
 		log.Error(err)
 		return err
@@ -312,7 +312,7 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 		return err
 	}
 
-	jsonOrgs, err := json.Marshal(orgs)
+	jsonOrgs, err := json.Marshal(freshOrgs)
 	if err != nil {
 		log.Error(err)
 		return err
@@ -323,13 +323,33 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 		Orgs:   string(jsonOrgs),
 	}
 
-	if cachedUserOrg != nil {
-		log.Debugf("update orgs for user %s", user.Email)
-		err = dao.UpdateUserOrg(mUserOrg)
-	} else {
+	oldOrgs := map[string]Org{}
+	if cachedUserOrg == nil {
 		log.Debugf("add orgs for user %s", user.Email)
 		_, err = dao.AddUserOrg(mUserOrg)
+		if err != nil {
+			return err
+		}
+	} else {
+		err = json.Unmarshal([]byte(cachedUserOrg.Orgs), &oldOrgs)
+		if err != nil {
+			return err
+		}
 	}
+
+	changed, newOrgs, removedOrgs, updatedOrgs := compareOrgMaps(oldOrgs, freshOrgs)
+	if !changed {
+		log.Debugf("no changes in organization setting for user %s", user.Email)
+		return nil
+	}
+
+	err = mapOrgsToProjectsAndMembers(user, newOrgs, removedOrgs, updatedOrgs)
+	if err != nil {
+		return err
+	}
+
+	log.Debugf("update orgs for user %s", user.Email)
+	err = dao.UpdateUserOrg(mUserOrg)
 
 	return err
 }

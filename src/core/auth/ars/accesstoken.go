@@ -220,7 +220,7 @@ func AuthenticateByToken(accessToken string) (*models.User, error) {
 func checkAuthResponse(resp *http.Response) (user *models.User, err error) {
 
 	if resp.StatusCode != 200 {
-		err = fmt.Errorf("failed to authenticate with token against dashboard. response code %s", resp.StatusCode)
+		err = fmt.Errorf("failed to authenticate with token against dashboard. response code %v", resp.StatusCode)
 		log.Errorf("checkAuthResponse: %v", err)
 		return
 	}

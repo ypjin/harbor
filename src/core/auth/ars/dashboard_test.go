@@ -1,6 +1,7 @@
 package ars
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/goharbor/harbor/src/common/models"
@@ -55,4 +56,36 @@ func TestAuthenticateFailure(t *testing.T) {
 		t.Fail()
 	}
 
+}
+
+func TestJSONField(t *testing.T) {
+
+	freshOrgs := map[string]Org{
+		"14301": Org{
+			ID:       "14301",
+			Name:     "Appcelerator Inc.",
+			ARSAdmin: true,
+		},
+	}
+
+	jsonOrgs, err := json.Marshal(freshOrgs)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	mUserOrg := &models.UserOrg{
+		UserID: 1,
+		Orgs:   string(jsonOrgs),
+	}
+
+	oldOrgs := map[string]Org{}
+	err = json.Unmarshal([]byte(mUserOrg.Orgs), &oldOrgs)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if freshOrgs["14301"] != oldOrgs["14301"] {
+		t.Errorf("error reading JSON field. %+v", oldOrgs)
+	}
 }
