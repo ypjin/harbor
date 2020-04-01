@@ -207,6 +207,9 @@ var (
 
 			{Resource: rbac.ResourceConfiguration, Action: rbac.ActionRead},
 
+			{Resource: rbac.ResourceRobot, Action: rbac.ActionCreate},
+			{Resource: rbac.ResourceRobot, Action: rbac.ActionUpdate},
+			{Resource: rbac.ResourceRobot, Action: rbac.ActionDelete},
 			{Resource: rbac.ResourceRobot, Action: rbac.ActionRead},
 			{Resource: rbac.ResourceRobot, Action: rbac.ActionList},
 

@@ -201,15 +201,16 @@ func createUserObject(userData *gabs.Container, sid string) *models.User {
 	}
 
 	// "role": "administrator"
-	if userData.Path("result.role").Data().(string) == "administrator" {
-		mUser.Rolename = roleNameProjectAdmin
-		mUser.HasAdminRole = true
-		mUser.Role = 1
-	} else {
-		mUser.Rolename = roleNameDeveloper
-		mUser.HasAdminRole = false
-		mUser.Role = 2
-	}
+	// This cannot be mapped to the harbor admin role.
+	// if userData.Path("result.role").Data().(string) == "administrator" {
+	// 	mUser.Rolename = roleNameProjectAdmin
+	// 	mUser.HasAdminRole = true
+	// 	mUser.Role = 1
+	// } else {
+	mUser.Rolename = roleNameDeveloper
+	mUser.HasAdminRole = false
+	mUser.Role = 2
+	// }
 
 	return mUser
 }

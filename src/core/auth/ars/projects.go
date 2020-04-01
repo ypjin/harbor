@@ -114,9 +114,9 @@ func createProjectsAndMembers(user *models.User, newOrgs []Org) error {
 		}
 
 		if org.ARSAdmin {
-			newMember.Role = models.DEVELOPER
+			newMember.Role = 4 // Master
 		} else {
-			newMember.Role = models.GUEST
+			newMember.Role = models.DEVELOPER
 		}
 
 		log.Debugf("add user as member: %+v", newMember)
