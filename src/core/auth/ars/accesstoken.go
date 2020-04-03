@@ -183,7 +183,9 @@ import (
 }
 */
 //
-func AuthenticateByToken(accessToken string) (*models.User, error) {
+func authenticateByToken(m models.AuthModel) (*models.User, error) {
+
+	accessToken := m.Password
 
 	host360 := os.Getenv("DASHBOARD_HOST")
 	if len(host360) == 0 {
@@ -254,16 +256,6 @@ func checkAuthResponse(resp *http.Response) (user *models.User, err error) {
 	if sid == "" {
 		log.Error("checkAuthResponse - bad response from Appcelerator 360: no cookie info")
 		err = errors.New("bad response from Appcelerator 360: no cookie info")
-		return
-	}
-
-	haveAccess, _, err := getAndVerifyOrgInfoFrom360(username, sid)
-	if err != nil {
-		return
-	}
-	if !haveAccess {
-		log.Errorf("checkAuthResponse - user's organizations do not have access to this domain")
-		err = errors.New("No access to this domain")
 		return
 	}
 

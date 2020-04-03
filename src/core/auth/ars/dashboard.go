@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dgrijalva/jwt-go"
 	"github.com/goharbor/harbor/src/common/dao"
 	"github.com/goharbor/harbor/src/common/models"
 	"github.com/goharbor/harbor/src/common/utils/log"
@@ -32,6 +33,20 @@ type Auth struct {
 
 // Authenticate user against appcelerator 360 (dashboard). This is for enterprise user only.
 func (d *Auth) Authenticate(m models.AuthModel) (*models.User, error) {
+
+	// test if the password is a JWT token. If so it should be got from AxwayID.
+	_, _, err := new(jwt.Parser).ParseUnverified(m.Password, jwt.MapClaims{})
+
+	if err != nil {
+		log.Debug("Password is provided, authenticating with password...")
+		return authenticateByPassword(m)
+	}
+
+	log.Debug("Access token is provided, authenticating with access token...")
+	return authenticateByToken(m)
+}
+
+func authenticateByPassword(m models.AuthModel) (*models.User, error) {
 
 	host360 := os.Getenv("DASHBOARD_HOST")
 	if len(host360) == 0 {
@@ -195,10 +210,31 @@ func createUserObject(userData *gabs.Container, sid string) *models.User {
 	// The realname will be set back in PostAuthenticate. No other unused fields (including Salt) are long enough for sid.
 	mUser := &models.User{
 		Username: userData.Path("result.username").Data().(string),
-		Email:    userData.Path("result.email").Data().(string),
-		Salt:     userData.Path("result.firstname").Data().(string) + " " + userData.Path("result.lastname").Data().(string),
 		Realname: sid,
 	}
+
+	if userData.Path("result.email").Data() != nil {
+		mUser.Email = userData.Path("result.email").Data().(string)
+	} else if userData.Path("result.user.email").Data() != nil {
+		mUser.Email = userData.Path("result.user.email").Data().(string)
+	} else {
+		mUser.Email = mUser.Username
+	}
+
+	var firstName, lastName string
+
+	if userData.Path("result.firstname").Data() != nil {
+		firstName = userData.Path("result.firstname").Data().(string)
+	} else if userData.Path("result.user.firstname").Data() != nil {
+		firstName = userData.Path("result.user.firstname").Data().(string)
+	}
+	if userData.Path("result.lastname").Data() != nil {
+		lastName = userData.Path("result.lastname").Data().(string)
+	} else if userData.Path("result.user.lastname").Data() != nil {
+		lastName = userData.Path("result.user.lastname").Data().(string)
+	}
+
+	mUser.Salt = firstName + " " + lastName
 
 	// "role": "administrator"
 	// This cannot be mapped to the harbor admin role.
@@ -256,6 +292,7 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 	refreshOrgs := false
 
 	if dbUser == nil {
+		log.Debugf("onboarding user: %s", user.Email)
 		d.OnBoardUser(user)
 		refreshOrgs = true
 	} else {
