@@ -75,6 +75,7 @@ func initRouters() {
 
 	beego.Router("/api/projects/:pid([0-9]+)/robots", &api.RobotAPI{}, "post:Post;get:List")
 	beego.Router("/api/projects/:pid([0-9]+)/robots/:id([0-9]+)", &api.RobotAPI{}, "get:Get;put:Put;delete:Delete")
+	beego.Router("/api/projects/:pname/robot", &api.ARSProjectAPI{}, "post:Init")
 
 	beego.Router("/api/quotas", &api.QuotaAPI{}, "get:List")
 	beego.Router("/api/quotas/:id([0-9]+)", &api.QuotaAPI{}, "get:Get;put:Put")
