@@ -168,8 +168,21 @@ func (p *ARSProjectAPI) InitProject() {
 	}
 	if len(robots) > 0 {
 		log.Debugf("default robot account found for project %s", projectName)
+		robot := robots[0]
+		expiresAt := time.Unix(robot.ExpiresAt, 0)
+		if expiresAt.Before(time.Now()) {
+			log.Warningf("The default robot account expired. extending it...")
+			tokenDuration := time.Duration(config.RobotTokenDuration()) * time.Minute
+			newExpiresAt := time.Now().UTC().Add(tokenDuration).Unix()
+			robot.ExpiresAt = newExpiresAt
+			err = p.ctr.UpdateRobotAccount(robot)
+			if err != nil {
+				p.SendInternalServerError(errors.Wrap(err, "ARS Project API: InitProject"))
+				return
+			}
+		}
 
-		p.Data["json"] = robots[0]
+		p.Data["json"] = robot
 		p.ServeJSON()
 		return
 	}
