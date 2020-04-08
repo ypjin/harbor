@@ -49,14 +49,14 @@ func (p *ARSProjectAPI) Prepare() {
 
 	projectName := p.GetStringFromPath(":pname")
 	if len(projectName) != 0 {
+		log.Debugf("finding project %s...", projectName)
 		project, err := p.ProjectMgr.Get(projectName)
 		if err != nil {
 			p.ParseAndHandleError(fmt.Sprintf("failed to get project %s", projectName), err)
 			return
 		}
 		if project == nil {
-			p.SendNotFoundError(fmt.Errorf("project %s not found", projectName))
-			return
+			log.Debugf("project %s not found", projectName)
 		}
 		p.project = project
 	}
@@ -71,9 +71,9 @@ func (p *ARSProjectAPI) requireAccess(action rbac.Action, subresource ...rbac.Re
 	return p.RequireProjectAccess(p.project.ProjectID, action, subresource...)
 }
 
-// Init a project to create a default robot account ...
-// beego.Router("/api/projects/:pname/robot", &api.ARSRobotAPI{}, "post:Init")
-func (p *ARSProjectAPI) Init() {
+// InitProject a project to create a default robot account ...
+// beego.Router("/api/projects/:pname/robot", &api.ARSRobotAPI{}, "post:InitProject")
+func (p *ARSProjectAPI) InitProject() {
 
 	if !p.SecurityCtx.IsAuthenticated() {
 		p.SendUnAuthorizedError(errors.New("Unauthorized"))
@@ -145,9 +145,11 @@ func (p *ARSProjectAPI) Init() {
 			return
 		}
 		p.project = project
+		log.Debugf("Project %s(%d) created", projectName, projectID)
 
 	} else {
-		log.Debugf("Project %s exists.", projectName)
+		projectID = p.project.ProjectID
+		log.Debugf("Project %s(%d) exists.", projectName, projectID)
 	}
 
 	// check if the project has a default robot account. if so return it
@@ -174,7 +176,7 @@ func (p *ARSProjectAPI) Init() {
 
 	log.Debugf("default robot account not found for project %s. creating it...", projectName)
 
-	if !p.requireAccess(rbac.ActionCreate) {
+	if !p.RequireProjectAccess(projectID, rbac.ActionCreate, rbac.ResourceRobot) {
 		p.SendUnAuthorizedError(errors.New("Unauthorized"))
 		return
 	}
