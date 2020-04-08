@@ -163,7 +163,7 @@ func (p *ARSProjectAPI) InitProject() {
 	}
 	robots, err := p.ctr.ListRobotAccount(query)
 	if err != nil {
-		p.SendInternalServerError(errors.Wrap(err, "robot API: list"))
+		p.SendInternalServerError(errors.Wrap(err, "ARS Project API: InitProject"))
 		return
 	}
 	if len(robots) > 0 {
@@ -209,20 +209,15 @@ func (p *ARSProjectAPI) InitProject() {
 			p.SendConflictError(errors.New("conflict robot account"))
 			return
 		}
-		p.SendInternalServerError(errors.Wrap(err, "robot API: post"))
+		p.SendInternalServerError(errors.Wrap(err, "ARS Project API: InitProject"))
 		return
 	}
 
 	w := p.Ctx.ResponseWriter
 	w.Header().Set("Content-Type", "application/json")
 
-	robotRep := model.RobotRep{
-		Name:  robot.Name,
-		Token: robot.Token,
-	}
-
 	p.Redirect(http.StatusCreated, strconv.FormatInt(robot.ID, 10))
-	p.Data["json"] = robotRep
+	p.Data["json"] = robot
 	p.ServeJSON()
 
 	go func() {

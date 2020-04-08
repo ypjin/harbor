@@ -3,6 +3,7 @@ package ars
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/dgrijalva/jwt-go"
 	"github.com/goharbor/harbor/src/common/utils/log"
@@ -37,4 +38,15 @@ func TestParseJWT(t *testing.T) {
 	for key, val := range claims {
 		fmt.Printf("Key: %v, value: %v\n", key, val)
 	}
+}
+
+func TestUnixTime(t *testing.T) {
+	tokenDuration := time.Duration(43200) * time.Minute
+	expiresAt := time.Now().UTC().Add(tokenDuration).Unix()
+
+	log.Infof("expiresAt: %d", expiresAt)
+
+	tt := time.Unix(expiresAt, 0)
+
+	log.Infof("expiresAt: %v", tt)
 }
