@@ -43,5 +43,6 @@ func init() {
 		new(CVEWhitelist),
 		new(Quota),
 		new(QuotaUsage),
+		new(UserOrg),
 	)
 }

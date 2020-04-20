@@ -35,6 +35,7 @@ import (
 	quota "github.com/goharbor/harbor/src/core/api/quota"
 	_ "github.com/goharbor/harbor/src/core/api/quota/chart"
 	_ "github.com/goharbor/harbor/src/core/api/quota/registry"
+	_ "github.com/goharbor/harbor/src/core/auth/ars"
 	_ "github.com/goharbor/harbor/src/core/auth/authproxy"
 	_ "github.com/goharbor/harbor/src/core/auth/db"
 	_ "github.com/goharbor/harbor/src/core/auth/ldap"
