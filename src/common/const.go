@@ -23,7 +23,7 @@ const (
 	UAAAuth             = "uaa_auth"
 	HTTPAuth            = "http_auth"
 	OIDCAuth            = "oidc_auth"
-	ARSDashboardAuth    = "dashboard"
+	ARSDashboardAuth    = "ars_auth"
 	ProCrtRestrEveryone = "everyone"
 	ProCrtRestrAdmOnly  = "adminonly"
 	LDAPScopeBase       = 0

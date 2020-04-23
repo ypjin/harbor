@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
+	"github.com/goharbor/harbor/src/common"
 	"github.com/goharbor/harbor/src/common/dao"
 	"github.com/goharbor/harbor/src/common/models"
 	"github.com/goharbor/harbor/src/common/utils/log"
@@ -403,5 +404,5 @@ func (d *Auth) SearchUser(username string) (*models.User, error) {
 }
 
 func init() {
-	auth.Register("dashboard", &Auth{})
+	auth.Register(common.ARSDashboardAuth, &Auth{})
 }

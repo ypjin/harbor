@@ -8,8 +8,14 @@ CREATE TABLE user_org (
 DO $$
 BEGIN
     IF exists(select * from properties where k = 'auth_mode') THEN
-        update properties set v='dashboard' where k = 'auth_mode';
+        update properties set v='ars_auth' where k = 'auth_mode';
     ELSE
-        insert into properties (k, v) values ('auth_mode', 'dashboard');
+        insert into properties (k, v) values ('auth_mode', 'ars_auth');
+    END IF;
+
+    IF exists(select * from properties where k = 'robot_token_duration') THEN
+        update properties set v='525600000' where k = 'robot_token_duration';
+    ELSE
+        insert into properties (k, v) values ('robot_token_duration', '525600000');
     END IF;
 END $$;
