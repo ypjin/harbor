@@ -14,8 +14,8 @@ BEGIN
     END IF;
 
     IF exists(select * from properties where k = 'robot_token_duration') THEN
-        update properties set v='525600000' where k = 'robot_token_duration';
+        update properties set v='131400000' where k = 'robot_token_duration';
     ELSE
-        insert into properties (k, v) values ('robot_token_duration', '525600000');
+        insert into properties (k, v) values ('robot_token_duration', '131400000');
     END IF;
 END $$;
