@@ -34,6 +34,7 @@ import (
 	"github.com/goharbor/harbor/src/jobservice/job/impl/notification"
 	"github.com/goharbor/harbor/src/jobservice/job/impl/replication"
 	"github.com/goharbor/harbor/src/jobservice/job/impl/sample"
+	"github.com/goharbor/harbor/src/jobservice/job/impl/syncregistry"
 	"github.com/goharbor/harbor/src/jobservice/lcm"
 	"github.com/goharbor/harbor/src/jobservice/logger"
 	"github.com/goharbor/harbor/src/jobservice/mgt"
@@ -247,6 +248,7 @@ func (bs *Bootstrap) loadAndRunRedisWorkerPool(
 			// Only for debugging and testing purpose
 			job.SampleJob: (*sample.Job)(nil),
 			// Functional jobs
+			job.SyncRegistryJob:        (*syncregistry.Job)(nil),
 			job.ImageScanJob:           (*sc.Job)(nil),
 			job.ImageScanAllJob:        (*all.Job)(nil),
 			job.ImageGC:                (*gc.GarbageCollector)(nil),

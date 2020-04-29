@@ -7,6 +7,8 @@ const (
 	ImageScanAllJob = "IMAGE_SCAN_ALL"
 	// ImageGC the name of image garbage collection job in job service
 	ImageGC = "IMAGE_GC"
+	// SyncRegistry the name of registry synchronization job in job service
+	SyncRegistry = "SYNC_REGISTRY"
 
 	// JobKindGeneric : Kind of generic job
 	JobKindGeneric = "Generic"

@@ -16,6 +16,8 @@ package api
 
 import (
 	"fmt"
+	"strconv"
+
 	"github.com/goharbor/harbor/src/common"
 	"github.com/goharbor/harbor/src/common/dao"
 	"github.com/goharbor/harbor/src/common/models"
@@ -24,7 +26,6 @@ import (
 	"github.com/goharbor/harbor/src/core/config"
 	"github.com/goharbor/harbor/src/jobservice/logger"
 	"github.com/pkg/errors"
-	"strconv"
 
 	quota "github.com/goharbor/harbor/src/core/api/quota"
 )
@@ -41,10 +42,10 @@ func (ia *InternalAPI) Prepare() {
 		ia.SendUnAuthorizedError(errors.New("UnAuthorized"))
 		return
 	}
-	if !ia.SecurityCtx.IsSysAdmin() {
-		ia.SendForbiddenError(errors.New(ia.SecurityCtx.GetUsername()))
-		return
-	}
+	// if !ia.SecurityCtx.IsSysAdmin() {
+	// 	ia.SendForbiddenError(errors.New(ia.SecurityCtx.GetUsername()))
+	// 	return
+	// }
 }
 
 // SyncRegistry ...
