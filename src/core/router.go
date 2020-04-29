@@ -75,6 +75,7 @@ func initRouters() {
 
 	beego.Router("/api/projects/:pid([0-9]+)/robots", &api.RobotAPI{}, "post:Post;get:List")
 	beego.Router("/api/projects/:pid([0-9]+)/robots/:id([0-9]+)", &api.RobotAPI{}, "get:Get;put:Put;delete:Delete")
+	beego.Router("/api/projects/:pname/robot", &api.ARSProjectAPI{}, "post:InitProject")
 
 	beego.Router("/api/quotas", &api.QuotaAPI{}, "get:List")
 	beego.Router("/api/quotas/:id([0-9]+)", &api.QuotaAPI{}, "get:Get;put:Put")
@@ -95,6 +96,10 @@ func initRouters() {
 	beego.Router("/api/system/gc/:id", &api.GCAPI{}, "get:GetGC")
 	beego.Router("/api/system/gc/:id([0-9]+)/log", &api.GCAPI{}, "get:GetLog")
 	beego.Router("/api/system/gc/schedule", &api.GCAPI{}, "get:Get;put:Put;post:Post")
+	beego.Router("/api/system/rs", &api.RegSyncAPI{}, "get:List")
+	beego.Router("/api/system/rs/:id", &api.RegSyncAPI{}, "get:GetRegSyncJob")
+	beego.Router("/api/system/rs/:id([0-9]+)/log", &api.RegSyncAPI{}, "get:GetLog")
+	beego.Router("/api/system/rs/schedule", &api.RegSyncAPI{}, "get:Get;put:Put;post:Post")
 	beego.Router("/api/system/scanAll/schedule", &api.ScanAllAPI{}, "get:Get;put:Put;post:Post")
 	beego.Router("/api/system/CVEWhitelist", &api.SysCVEWhitelistAPI{}, "get:Get;put:Put")
 	beego.Router("/api/system/oidc/ping", &api.OIDCAPI{}, "post:Ping")

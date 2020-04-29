@@ -32,9 +32,11 @@ import (
 	"github.com/goharbor/harbor/src/common/utils"
 	"github.com/goharbor/harbor/src/common/utils/log"
 	"github.com/goharbor/harbor/src/core/api"
+	api_models "github.com/goharbor/harbor/src/core/api/models"
 	quota "github.com/goharbor/harbor/src/core/api/quota"
 	_ "github.com/goharbor/harbor/src/core/api/quota/chart"
 	_ "github.com/goharbor/harbor/src/core/api/quota/registry"
+	_ "github.com/goharbor/harbor/src/core/auth/ars"
 	_ "github.com/goharbor/harbor/src/core/auth/authproxy"
 	_ "github.com/goharbor/harbor/src/core/auth/db"
 	_ "github.com/goharbor/harbor/src/core/auth/ldap"
@@ -45,6 +47,7 @@ import (
 	"github.com/goharbor/harbor/src/core/middlewares"
 	_ "github.com/goharbor/harbor/src/core/notifier/topic"
 	"github.com/goharbor/harbor/src/core/service/token"
+	core_utils "github.com/goharbor/harbor/src/core/utils"
 	"github.com/goharbor/harbor/src/pkg/notification"
 	"github.com/goharbor/harbor/src/pkg/scan"
 	"github.com/goharbor/harbor/src/pkg/scan/dao/scanner"
@@ -265,6 +268,10 @@ func main() {
 		if err := api.SyncRegistry(config.GlobalProjectMgr); err != nil {
 			log.Error(err)
 		}
+		err = createSyncRegJob()
+		if err != nil {
+			log.Fatalf("creating registry synchronization job error, %v", err)
+		}
 	} else {
 		log.Infof("Because SYNC_REGISTRY set false , no need to sync registry \n")
 	}
@@ -291,4 +298,80 @@ func main() {
 	log.Infof("Version: %s, Git commit: %s", version.ReleaseVersion, version.GitCommit)
 	beego.Run()
 
+}
+
+// admin_job record
+// "id"			3
+// "job_name"	"IMAGE_GC"
+// "job_kind"	"Periodic"
+// "cron_str"	"{"type":"Daily","cron":"0 0 0 * * *"}"
+// "status"		"pending"
+// "job_uuid"	"a289fb8913bd4fc1602d8a4f"
+// "creation_time"	"2020-04-28 21:37:40"
+// "update_time"	"2020-04-28 21:37:40.799486"
+// "deleted"		false
+// "revision"		0
+// "status_code"	0
+// https://medium.com/@chamirachid/getting-started-with-harbor-job-services-dafd20c603fa
+func createSyncRegJob() error {
+
+	// TODO
+	// * check db to see if there is a active job for SYNC_REGISTRY
+	// * if so, do nothing and return
+	// * add a new job
+
+	log.Infof("trying to create a job for registry synchronization...")
+
+	ajr := api_models.AdminJobReq{
+		Name: job.SyncRegistry,
+	}
+	// https://contentgrabber.com/Manual/cron-expressions.htm
+	ajr.AdminJobSchedule.Schedule = &api_models.ScheduleParam{
+		Type: api_models.ScheduleCustom,
+		Cron: "0 */10 * * * *",
+	}
+
+	query := &models.AdminJobQuery{
+		Name: ajr.Name,
+		Kind: job.JobKindPeriodic,
+	}
+	jobs, err := dao.GetAdminJobs(query)
+	if err != nil {
+		log.Errorf("failed to get registry synchronization job from database. %v", err)
+		return err
+	}
+
+	if len(jobs) >= 1 {
+		log.Info("found jobs for registry synchonization. will do nothing.")
+		return nil
+	}
+
+	id, err := dao.AddAdminJob(&models.AdminJob{
+		Name: ajr.Name,
+		Kind: ajr.JobKind(),
+		Cron: ajr.CronString(),
+	})
+	if err != nil {
+		log.Errorf("failed to add registry synchronization job to database. %v", err)
+		return err
+	}
+	ajr.ID = id
+	job := ajr.ToJob()
+
+	// submit job to job service
+	log.Debugf("submitting registry synchronization job to job service")
+	uuid, err := core_utils.GetJobServiceClient().SubmitJob(job)
+	if err != nil {
+		if err := dao.DeleteAdminJob(id); err != nil {
+			log.Errorf("Failed to delete registry synchronization job, err: %v", err)
+		}
+		log.Errorf("failed to submit registry synchronization job. %v", err)
+		return err
+	}
+	if err := dao.SetAdminJobUUID(id, uuid); err != nil {
+		log.Errorf("failed to set registry synchroization job UUID. %v", err)
+		return err
+	}
+
+	return nil
 }

@@ -5,6 +5,7 @@ go 1.12
 replace github.com/goharbor/harbor => ../
 
 require (
+	github.com/Jeffail/gabs v1.4.0
 	github.com/Masterminds/semver v1.4.2
 	github.com/Microsoft/go-winio v0.4.12 // indirect
 	github.com/Shopify/logrus-bugsnag v0.0.0-20171204204709-577dee27f20d // indirect

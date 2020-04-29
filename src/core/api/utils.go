@@ -145,7 +145,20 @@ func diffRepos(reposInRegistry []string, reposInDB []string,
 			}
 
 			if !exist {
-				continue
+				log.Warningf("project does not exsit for repo: %s", repoInR)
+				project, _ := utils.ParseRepository(repoInR)
+				log.Infof("about to create project: %s", project)
+				projectID, err := pm.Create(&models.Project{
+					Name:      project,
+					OwnerName: "admin",
+					Metadata:  map[string]string{},
+				})
+				if err != nil {
+					log.Errorf("failed to create project %s: %v", project, err)
+					continue
+				} else {
+					log.Infof("project %s created: ID %v", project, projectID)
+				}
 			}
 
 			// TODO remove the workaround when the bug of registry is fixed

@@ -20,6 +20,8 @@ const (
 	// SampleJob is name of demo job
 	SampleJob = "DEMO"
 
+	// SyncRegistryJob is the name of the job to trigger harbor-core to sync repos from registry
+	SyncRegistryJob = "SYNC_REGISTRY"
 	// ImageScanJob is name of scan job it will be used as key to register to job service.
 	ImageScanJob = "IMAGE_SCAN"
 	// ImageScanAllJob is the name of "scanall" job in job service
