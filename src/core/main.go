@@ -268,10 +268,13 @@ func main() {
 		if err := api.SyncRegistry(config.GlobalProjectMgr); err != nil {
 			log.Error(err)
 		}
-		err = createSyncRegJob()
-		if err != nil {
-			log.Fatalf("creating registry synchronization job error, %v", err)
-		}
+		go func() {
+			err = createSyncRegJob()
+			for ; err != nil; err = createSyncRegJob() {
+				log.Errorf("creating registry synchronization job error, %v", err)
+				time.Sleep(1 * time.Minute)
+			}
+		}()
 	} else {
 		log.Infof("Because SYNC_REGISTRY set false , no need to sync registry \n")
 	}
