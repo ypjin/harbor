@@ -165,7 +165,7 @@ func GetProjectMemberByProjectIDAndEntityID(projectID int64, entityID int) ([]*m
 	o := dao.GetOrmer()
 	sql := ` select * from project_member where a.project_id = ? and entity_id = ?`
 
-	queryParam := make([]interface{}, 1)
+	queryParam := make([]interface{}, 0)
 	// used ProjectID already
 	queryParam = append(queryParam, projectID)
 	queryParam = append(queryParam, entityID)
