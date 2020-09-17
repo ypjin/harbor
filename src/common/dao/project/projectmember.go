@@ -39,7 +39,7 @@ func GetProjectMember(queryMember models.Member) ([]*models.Member, error) {
 		on pm.project_id = ? and u.user_id = pm.entity_id
 		join role r on pm.role = r.role_id where u.deleted = false and pm.entity_type = 'u') as a where a.project_id = ? `
 
-	queryParam := make([]interface{}, 1)
+	queryParam := make([]interface{}, 0)
 	// used ProjectID already
 	queryParam = append(queryParam, queryMember.ProjectID)
 	queryParam = append(queryParam, queryMember.ProjectID)
@@ -65,7 +65,7 @@ func GetProjectMember(queryMember models.Member) ([]*models.Member, error) {
 	}
 	sql += ` order by entity_name `
 	members := []*models.Member{}
-	_, err := o.Raw(sql, queryParam).QueryRows(&members)
+	_, err := o.Raw(sql, queryParam...).QueryRows(&members)
 
 	return members, err
 }
@@ -87,7 +87,7 @@ func GetTotalOfProjectMembers(projectID int64, roles ...int) (int64, error) {
 	}
 
 	var count int64
-	err := dao.GetOrmer().Raw(sql, queryParam).QueryRow(&count)
+	err := dao.GetOrmer().Raw(sql, queryParam...).QueryRow(&count)
 	return count, err
 }
 
@@ -153,7 +153,7 @@ func DeleteProjectMemberByEntityIDAndProjectIDs(entityID int, projectIDs []int64
 		params = append(params, projectIDs)
 	}
 
-	if _, err := o.Raw(sql, params).Exec(); err != nil {
+	if _, err := o.Raw(sql, params...).Exec(); err != nil {
 		return err
 	}
 	return nil
@@ -163,15 +163,15 @@ func DeleteProjectMemberByEntityIDAndProjectIDs(entityID int, projectIDs []int64
 func GetProjectMemberByProjectIDAndEntityID(projectID int64, entityID int) ([]*models.Member, error) {
 
 	o := dao.GetOrmer()
-	sql := ` select * from project_member where a.project_id = ? and entity_id = ?`
+	sql := `select * from project_member where project_id = ? and entity_id = ?`
 
-	queryParam := make([]interface{}, 1)
+	queryParam := make([]interface{}, 0)
 	// used ProjectID already
 	queryParam = append(queryParam, projectID)
 	queryParam = append(queryParam, entityID)
 
 	members := []*models.Member{}
-	_, err := o.Raw(sql, queryParam).QueryRows(&members)
+	_, err := o.Raw(sql, queryParam...).QueryRows(&members)
 
 	return members, err
 }
@@ -197,13 +197,13 @@ func SearchMemberByName(projectID int64, entityName string) ([]*models.Member, e
 	     left join role r on pm.role = r.role_id
 			 where pm.project_id = ? and ug.group_name like ?
 			 order by entity_name  `
-	queryParam := make([]interface{}, 4)
+	queryParam := make([]interface{}, 0)
 	queryParam = append(queryParam, projectID)
 	queryParam = append(queryParam, "%"+dao.Escape(entityName)+"%")
 	queryParam = append(queryParam, projectID)
 	queryParam = append(queryParam, "%"+dao.Escape(entityName)+"%")
 	members := []*models.Member{}
 	log.Debugf("Query sql: %v", sql)
-	_, err := o.Raw(sql, queryParam).QueryRows(&members)
+	_, err := o.Raw(sql, queryParam...).QueryRows(&members)
 	return members, err
 }
