@@ -163,19 +163,19 @@ func DeleteProjectMemberByEntityIDAndProjectIDs(entityID int, projectIDs []int64
 func GetProjectMemberByProjectIDAndEntityID(projectID int64, entityID int) ([]*models.Member, error) {
 
 	o := dao.GetOrmer()
-	sql := ` select * from project_member where a.project_id = ? and entity_id = ?`
+	sql := "select * from project_member where a.project_id = ? and entity_id = ?"
 
-	queryParam := make([]interface{}, 0)
-	// used ProjectID already
-	queryParam = append(queryParam, projectID)
-	queryParam = append(queryParam, entityID)
+	// queryParam := make([]interface{}, 0)
+	// // used ProjectID already
+	// queryParam = append(queryParam, projectID)
+	// queryParam = append(queryParam, entityID)
 
 	log.Debugf("get members projectID ----> %v", projectID)
 	log.Debugf("get members entityID ----> %v", entityID)
-	log.Debugf("get members queryParam ----> %v", queryParam)
+	// log.Debugf("get members queryParam ----> %v", queryParam)
 
 	members := []*models.Member{}
-	_, err := o.Raw(sql, queryParam...).QueryRows(&members)
+	_, err := o.Raw(sql, projectID, entityID).QueryRows(&members)
 
 	return members, err
 }
