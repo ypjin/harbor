@@ -170,6 +170,10 @@ func GetProjectMemberByProjectIDAndEntityID(projectID int64, entityID int) ([]*m
 	queryParam = append(queryParam, projectID)
 	queryParam = append(queryParam, entityID)
 
+	log.Debugf("get members projectID ----> %v", projectID)
+	log.Debugf("get members entityID ----> %v", entityID)
+	log.Debugf("get members queryParam ----> %v", queryParam)
+
 	members := []*models.Member{}
 	_, err := o.Raw(sql, queryParam).QueryRows(&members)
 
