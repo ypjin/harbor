@@ -238,7 +238,7 @@ func authenticateByPassword(m models.AuthModel) (*models.User, error) {
 func createUserObject(userData *gabs.Container, sid string) *models.User {
 
 	// use Realname field to save dashboard session and Salt for the realname.
-	// The realname will be set back in PostAuthenticate. No other unused fields (including Salt) are long enough for sid.
+	// No other unused fields (including Salt) are long enough for sid.
 	mUser := &models.User{
 		Username: userData.Path("result.username").Data().(string),
 		Realname: sid,
@@ -265,6 +265,7 @@ func createUserObject(userData *gabs.Container, sid string) *models.User {
 		lastName = userData.Path("result.user.lastname").Data().(string)
 	}
 
+	// Realname is used for saving dashboard session
 	mUser.Salt = firstName + " " + lastName
 
 	// "role": "administrator"
@@ -315,11 +316,8 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 		return err
 	}
 
-	// get dashboardsid and set back Realname from Salt
-	// workaround for carring the sid here
+	// need to save dashboardsid in user.Realname as it's the only field long enough
 	dashboardSid := user.Realname
-	user.Realname = user.Salt
-	user.Salt = ""
 
 	var cachedUserOrg *models.UserOrg
 	refreshOrgs := false
