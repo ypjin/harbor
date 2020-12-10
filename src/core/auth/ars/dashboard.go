@@ -1,6 +1,7 @@
 package ars
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,46 +36,60 @@ type Auth struct {
 // Authenticate user against appcelerator 360 (dashboard). This is for enterprise user only.
 func (d *Auth) Authenticate(m models.AuthModel) (*models.User, error) {
 
-	// test if the password is a JWT token. If so it should be got from AxwayID.
-	_, _, err := new(jwt.Parser).ParseUnverified(m.Password, jwt.MapClaims{})
-
-	if err != nil {
-		log.Debug("Password is provided, authenticating with password...")
-
-		mUser := &models.User{
-			Username: m.Principal,
+	username := m.Principal
+	useToken := false
+	authAgainstBackend := func(useToken bool) (*models.User, error) {
+		if useToken {
+			return authenticateByToken(m)
 		}
-
-		existing, err := dao.GetUser(*mUser)
-		if err != nil {
-			log.Errorf("error checking user existence. %v", err)
-			return nil, err
-		}
-
-		if existing == nil {
-			return authenticateByPassword(m)
-		}
-
-		log.Debugf("got existing user: %+v", existing)
-		log.Debugf("existing user password: %s", existing.Password)
-
-		authTime, err := time.Parse(time.RFC3339, existing.Password)
-		if err != nil {
-			log.Errorf("error parsing password as time. %v", err)
-			return authenticateByPassword(m)
-		}
-
-		if time.Now().After(authTime.Add(2 * time.Minute)) {
-			log.Debugf("last auth time is earlier than 2 minutes")
-			return authenticateByPassword(m)
-		}
-
-		return existing, nil
-
+		return authenticateByPassword(m)
 	}
 
-	log.Debug("Access token is provided, authenticating with access token...")
-	return authenticateByToken(m)
+	// test if the password is a JWT token. If so it should be got from AxwayID.
+	parsedToken, _, err := new(jwt.Parser).ParseUnverified(m.Password, jwt.MapClaims{})
+	if err == nil {
+		log.Debug("Access token is provided, authenticating with access token...")
+		useToken = true
+		mapClaims := parsedToken.Claims.(jwt.MapClaims)
+		username := mapClaims["preferred_username"].(string)
+		log.Debugf("username got from token: %s", username)
+	} else {
+		log.Debug("Password is provided, authenticating with password...")
+	}
+
+	mUser := &models.User{
+		Username: username,
+	}
+	existing, err := dao.GetUser(*mUser)
+	if err != nil {
+		log.Errorf("error checking user existence. %v", err)
+		return nil, err
+	}
+	if existing == nil {
+		log.Errorf("no user exists for %s", username)
+		return authAgainstBackend(useToken)
+	}
+
+	log.Debugf("got existing user: %+v", existing)
+	log.Debugf("existing user ResetUUID: %s", existing.ResetUUID) // time last auth happened
+	log.Debugf("existing user Password: %s", existing.Password)   // password or token hash
+
+	if existing.Password != getDegest(m.Password) {
+		log.Errorf("got different password.")
+		return authAgainstBackend(useToken)
+	}
+
+	authTime, err := time.Parse(time.RFC3339, existing.ResetUUID)
+	if err != nil {
+		log.Errorf("error parsing ResetUUID as time. %v", err)
+		return authAgainstBackend(useToken)
+	}
+	if time.Now().After(authTime.Add(2 * time.Minute)) {
+		log.Debugf("last auth time is earlier than 2 minutes")
+		return authAgainstBackend(useToken)
+	}
+
+	return existing, nil
 }
 
 func authenticateByPassword(m models.AuthModel) (*models.User, error) {
@@ -230,17 +245,18 @@ func authenticateByPassword(m models.AuthModel) (*models.User, error) {
 		return nil, err
 	}
 
-	mUser := createUserObject(jsonBody, sid)
+	mUser := createUserObject(jsonBody, sid, getDegest(m.Password))
 
 	return mUser, nil
 }
 
-func createUserObject(userData *gabs.Container, sid string) *models.User {
+func createUserObject(userData *gabs.Container, sid string, passwordHash string) *models.User {
 
 	// use Realname field to save dashboard session and Salt for the realname.
 	// No other unused fields (including Salt) are long enough for sid.
 	mUser := &models.User{
 		Username: userData.Path("result.username").Data().(string),
+		Password: passwordHash,
 		Realname: sid,
 	}
 
@@ -281,7 +297,7 @@ func createUserObject(userData *gabs.Container, sid string) *models.User {
 	// }
 
 	// ARS-4919
-	mUser.Password = time.Now().Format(time.RFC3339)
+	mUser.ResetUUID = time.Now().Format(time.RFC3339)
 	return mUser
 }
 
@@ -330,8 +346,8 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 		user.UserID = dbUser.UserID
 		user.HasAdminRole = dbUser.HasAdminRole
 		fillEmailRealName(user)
-		// Password field is used for saving the time authentication happening
-		if err2 := dao.ChangeUserProfile(*user, "Email", "Realname", "Password"); err2 != nil {
+		// ResetUUID field is used for saving the time authentication happening
+		if err2 := dao.ChangeUserProfile(*user, "Email", "Realname", "ResetUUID", "Password"); err2 != nil {
 			log.Warningf("Failed to update user profile, user: %s, error: %v", user.Username, err2)
 		}
 
@@ -414,7 +430,9 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 	changed, newOrgs, removedOrgs, updatedOrgs := compareOrgMaps(oldOrgs, freshOrgs)
 	if !changed {
 		log.Debugf("no changes in organization setting for user %s", user.Email)
-		return nil
+		// still need to update UserOrg to refresh UpdateTime so that it does not need to get orgs from dashboard
+		// upon every auth request after the cached is older than 5 mins.
+		return dao.UpdateUserOrg(mUserOrg)
 	}
 
 	err = mapOrgsToProjectsAndMembers(user, newOrgs, removedOrgs, updatedOrgs)
@@ -436,6 +454,30 @@ func (d *Auth) SearchUser(username string) (*models.User, error) {
 	}
 
 	return dao.GetUser(queryCondition)
+}
+
+// https://8gwifi.org/docs/go-hashing.jsp
+// https://gist.github.com/sergiotapia/8263278
+func getDegest(value string) string {
+	// The pattern for generating a hash is `sha1.New()`,
+	// `sha1.Write(bytes)`, then `sha1.Sum([]byte{})`.
+	// Here we start with a new hash.
+	h := sha256.New()
+
+	// `Write` expects bytes. If you have a string `s`,
+	// use `[]byte(s)` to coerce it to bytes.
+	h.Write([]byte(value))
+
+	// This gets the finalized hash result as a byte
+	// slice. The argument to `Sum` can be used to append
+	// to an existing byte slice: it usually isn't needed.
+	bs := h.Sum(nil)
+
+	// SHA1 values are often printed in hex, for example
+	// in git commits. Use the `%x` format verb to convert
+	// a hash results to a hex string.
+	// fmt.Println(s)
+	return fmt.Sprintf("%x", bs)
 }
 
 func init() {

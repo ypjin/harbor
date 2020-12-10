@@ -215,11 +215,11 @@ func authenticateByToken(m models.AuthModel) (*models.User, error) {
 		return nil, err
 	}
 
-	return checkAuthResponse(resp)
+	return checkAuthResponse(resp, accessToken)
 }
 
 // check the response of authentication request
-func checkAuthResponse(resp *http.Response) (user *models.User, err error) {
+func checkAuthResponse(resp *http.Response, accessToken string) (user *models.User, err error) {
 
 	if resp.StatusCode != 200 {
 		err = fmt.Errorf("failed to authenticate with token against dashboard. response code %v", resp.StatusCode)
@@ -259,7 +259,7 @@ func checkAuthResponse(resp *http.Response) (user *models.User, err error) {
 		return
 	}
 
-	user = createUserObject(jsonBody, sid)
+	user = createUserObject(jsonBody, sid, getDegest(accessToken))
 
 	return
 }
