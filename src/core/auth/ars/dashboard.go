@@ -395,8 +395,8 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 
 	// TODO set updateTime
 	mUserOrg := &models.UserOrg{
-		UserID:     user.UserID,
-		Orgs:       string(jsonOrgs)
+		UserID: user.UserID,
+		Orgs:   string(jsonOrgs),
 	}
 
 	oldOrgs := map[string]Org{}
