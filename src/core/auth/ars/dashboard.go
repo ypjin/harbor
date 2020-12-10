@@ -26,6 +26,12 @@ const (
 	roleNameProjectAdmin        = "projectAdmin"
 	roleNameDeveloper           = "developer"
 	envVarUserOrgsCacheDuration = "USER_ORGS_CACHE_DURATION"
+	envVarUserSessionDuration   = "USER_SESSION_DURATION"
+)
+
+var (
+	orgsCacheDur   time.Duration
+	userSessionDur time.Duration
 )
 
 // Auth implements Authenticator interface to authenticate user against Dashboard.
@@ -84,8 +90,8 @@ func (d *Auth) Authenticate(m models.AuthModel) (*models.User, error) {
 		log.Errorf("error parsing ResetUUID as time. %v", err)
 		return authAgainstBackend(useToken)
 	}
-	if time.Now().After(authTime.Add(2 * time.Minute)) {
-		log.Debugf("last auth time is earlier than 2 minutes")
+	if time.Now().After(authTime.Add(userSessionDur)) {
+		log.Debugf("last auth time is earlier than %s", userSessionDur)
 		return authAgainstBackend(useToken)
 	}
 
@@ -364,18 +370,6 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 			log.Warningf("No cached organization info found for user %s", user.Username)
 			refreshOrgs = true
 		} else {
-			orgsCacheDur := 5 * time.Minute
-			cacheDurString := os.Getenv(envVarUserOrgsCacheDuration)
-			if cacheDurString != "" {
-				configuredDur, err := time.ParseDuration(cacheDurString)
-				if err != nil {
-					log.Warningf("invalid %s %s. will be ignored", envVarUserOrgsCacheDuration, cacheDurString)
-				} else {
-					orgsCacheDur = configuredDur
-					log.Debugf("%s: %v", envVarUserOrgsCacheDuration, configuredDur)
-				}
-			}
-
 			if time.Now().After(cachedUserOrg.UpdateTime.Add(orgsCacheDur)) {
 				log.Debugf("The cached organization info is older than %s for user %s. need to refresh", orgsCacheDur, user.Username)
 				refreshOrgs = true
@@ -480,6 +474,27 @@ func getDegest(value string) string {
 	return fmt.Sprintf("%x", bs)
 }
 
+func getConfiguredDuration(envVarName string, defValue time.Duration) time.Duration {
+
+	desiredDur := defValue
+
+	configuredDurString := os.Getenv(envVarName)
+	if configuredDurString != "" {
+		configuredDur, err := time.ParseDuration(configuredDurString)
+		if err != nil {
+			log.Warningf("invalid %s %s. will be ignored", envVarName, configuredDurString)
+		} else {
+			desiredDur = configuredDur
+			log.Debugf("%s: %v", envVarName, configuredDur)
+		}
+	}
+
+	return desiredDur
+}
+
 func init() {
 	auth.Register(common.ARSDashboardAuth, &Auth{})
+
+	orgsCacheDur = getConfiguredDuration(envVarUserOrgsCacheDuration, 5*time.Minute)
+	userSessionDur = getConfiguredDuration(envVarUserSessionDuration, 2*time.Minute)
 }
