@@ -332,7 +332,8 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 		user.UserID = dbUser.UserID
 		user.HasAdminRole = dbUser.HasAdminRole
 		fillEmailRealName(user)
-		if err2 := dao.ChangeUserProfile(*user, "Email", "Realname"); err2 != nil {
+		// Password field is used for saving the time authentication happening
+		if err2 := dao.ChangeUserProfile(*user, "Email", "Realname", "Password"); err2 != nil {
 			log.Warningf("Failed to update user profile, user: %s, error: %v", user.Username, err2)
 		}
 
@@ -343,6 +344,8 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 		}
 
 		// TODO show cachedUserOrg.UpdateTime
+		log.Debugf("cachedUserOrg.UpdateTime: %v", cachedUserOrg.UpdateTime)
+
 		if cachedUserOrg == nil {
 			log.Warningf("No cached organization info found for user %s", user.Username)
 			refreshOrgs = true
@@ -392,8 +395,8 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 
 	// TODO set updateTime
 	mUserOrg := &models.UserOrg{
-		UserID: user.UserID,
-		Orgs:   string(jsonOrgs),
+		UserID:     user.UserID,
+		Orgs:       string(jsonOrgs)
 	}
 
 	oldOrgs := map[string]Org{}
