@@ -40,7 +40,37 @@ func (d *Auth) Authenticate(m models.AuthModel) (*models.User, error) {
 
 	if err != nil {
 		log.Debug("Password is provided, authenticating with password...")
-		return authenticateByPassword(m)
+
+		mUser := &models.User{
+			Username: m.Principal,
+		}
+
+		existing, err := dao.GetUser(*mUser)
+		if err != nil {
+			log.Errorf("error checking user existence. %v", err)
+			return nil, err
+		}
+
+		if existing == nil {
+			return authenticateByPassword(m)
+		}
+
+		log.Debugf("got existing user: %+v", existing)
+		log.Debugf("existing user password: %s", existing.Password)
+
+		authTime, err := time.Parse(time.RFC3339, existing.Password)
+		if err != nil {
+			log.Errorf("error parsing password as time. %v", err)
+			return authenticateByPassword(m)
+		}
+
+		if time.Now().After(authTime.Add(2 * time.Minute)) {
+			log.Debugf("last auth time is earlier than 2 minutes")
+			return authenticateByPassword(m)
+		}
+
+		return existing
+
 	}
 
 	log.Debug("Access token is provided, authenticating with access token...")
@@ -249,6 +279,8 @@ func createUserObject(userData *gabs.Container, sid string) *models.User {
 	mUser.Role = 2
 	// }
 
+	// ARS-4919
+	mUser.Password = time.Now().Format(time.RFC3339)
 	return mUser
 }
 
@@ -304,12 +336,13 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 			log.Warningf("Failed to update user profile, user: %s, error: %v", user.Username, err2)
 		}
 
-		// TODO: if organizations were got in 5 minutes skip refreshing
+		// if organizations were got in 5 minutes skip refreshing
 		cachedUserOrg, err = dao.GetUserOrg(user.UserID)
 		if err != nil {
 			return err
 		}
 
+		// TODO show cachedUserOrg.UpdateTime
 		if cachedUserOrg == nil {
 			log.Warningf("No cached organization info found for user %s", user.Username)
 			refreshOrgs = true
@@ -357,6 +390,7 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 		return err
 	}
 
+	// TODO set updateTime
 	mUserOrg := &models.UserOrg{
 		UserID: user.UserID,
 		Orgs:   string(jsonOrgs),
