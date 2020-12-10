@@ -69,7 +69,7 @@ func (d *Auth) Authenticate(m models.AuthModel) (*models.User, error) {
 			return authenticateByPassword(m)
 		}
 
-		return existing
+		return existing, nil
 
 	}
 
