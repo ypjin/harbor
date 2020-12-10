@@ -1,7 +1,7 @@
 package ars
 
 import (
-	"crypto/sha256"
+	"crypto/sha1"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -456,7 +456,7 @@ func getDegest(value string) string {
 	// The pattern for generating a hash is `sha1.New()`,
 	// `sha1.Write(bytes)`, then `sha1.Sum([]byte{})`.
 	// Here we start with a new hash.
-	h := sha256.New()
+	h := sha1.New()
 
 	// `Write` expects bytes. If you have a string `s`,
 	// use `[]byte(s)` to coerce it to bytes.
