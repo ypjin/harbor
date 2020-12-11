@@ -1,6 +1,7 @@
 package ars
 
 import (
+	"crypto/sha1"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +26,12 @@ const (
 	roleNameProjectAdmin        = "projectAdmin"
 	roleNameDeveloper           = "developer"
 	envVarUserOrgsCacheDuration = "USER_ORGS_CACHE_DURATION"
+	envVarUserSessionDuration   = "USER_SESSION_DURATION"
+)
+
+var (
+	orgsCacheDur   time.Duration
+	userSessionDur time.Duration
 )
 
 // Auth implements Authenticator interface to authenticate user against Dashboard.
@@ -35,16 +42,58 @@ type Auth struct {
 // Authenticate user against appcelerator 360 (dashboard). This is for enterprise user only.
 func (d *Auth) Authenticate(m models.AuthModel) (*models.User, error) {
 
-	// test if the password is a JWT token. If so it should be got from AxwayID.
-	_, _, err := new(jwt.Parser).ParseUnverified(m.Password, jwt.MapClaims{})
-
-	if err != nil {
-		log.Debug("Password is provided, authenticating with password...")
+	username := m.Principal
+	useToken := false
+	authAgainstBackend := func(useToken bool) (*models.User, error) {
+		if useToken {
+			return authenticateByToken(m)
+		}
 		return authenticateByPassword(m)
 	}
 
-	log.Debug("Access token is provided, authenticating with access token...")
-	return authenticateByToken(m)
+	// test if the password is a JWT token. If so it should be got from AxwayID.
+	parsedToken, _, err := new(jwt.Parser).ParseUnverified(m.Password, jwt.MapClaims{})
+	if err == nil {
+		log.Debug("Access token is provided, authenticating with access token...")
+		useToken = true
+		mapClaims := parsedToken.Claims.(jwt.MapClaims)
+		username := mapClaims["preferred_username"].(string)
+		log.Debugf("username got from token: %s", username)
+	} else {
+		log.Debug("Password is provided, authenticating with password...")
+	}
+
+	mUser := &models.User{
+		Username: username,
+	}
+	existing, err := dao.GetUser(*mUser)
+	if err != nil {
+		log.Errorf("error checking user existence. %v", err)
+		return nil, err
+	}
+	if existing == nil {
+		log.Debugf("no user exists for %s", username)
+		return authAgainstBackend(useToken)
+	}
+
+	log.Debugf("existing user ResetUUID (last auth time against backend): %s", existing.ResetUUID) // time last auth happened
+
+	if existing.Password != getDigest(m.Password) {
+		log.Errorf("got different password")
+		return authAgainstBackend(useToken)
+	}
+
+	authTime, err := time.Parse(time.RFC3339, existing.ResetUUID)
+	if err != nil {
+		log.Errorf("error parsing ResetUUID as time. %v", err)
+		return authAgainstBackend(useToken)
+	}
+	if time.Now().After(authTime.Add(userSessionDur)) {
+		log.Debugf("last auth time against backend is earlier than %s", userSessionDur)
+		return authAgainstBackend(useToken)
+	}
+
+	return existing, nil
 }
 
 func authenticateByPassword(m models.AuthModel) (*models.User, error) {
@@ -200,17 +249,18 @@ func authenticateByPassword(m models.AuthModel) (*models.User, error) {
 		return nil, err
 	}
 
-	mUser := createUserObject(jsonBody, sid)
+	mUser := createUserObject(jsonBody, sid, getDigest(m.Password))
 
 	return mUser, nil
 }
 
-func createUserObject(userData *gabs.Container, sid string) *models.User {
+func createUserObject(userData *gabs.Container, sid string, passwordHash string) *models.User {
 
 	// use Realname field to save dashboard session and Salt for the realname.
-	// The realname will be set back in PostAuthenticate. No other unused fields (including Salt) are long enough for sid.
+	// No other unused fields (including Salt) are long enough for sid.
 	mUser := &models.User{
 		Username: userData.Path("result.username").Data().(string),
+		Password: passwordHash,
 		Realname: sid,
 	}
 
@@ -235,6 +285,7 @@ func createUserObject(userData *gabs.Container, sid string) *models.User {
 		lastName = userData.Path("result.user.lastname").Data().(string)
 	}
 
+	// Realname is used for saving dashboard session
 	mUser.Salt = firstName + " " + lastName
 
 	// "role": "administrator"
@@ -249,6 +300,8 @@ func createUserObject(userData *gabs.Container, sid string) *models.User {
 	mUser.Role = 2
 	// }
 
+	// use ResetUUID to store last auth time against backend (ARS-4919)
+	mUser.ResetUUID = time.Now().Format(time.RFC3339)
 	return mUser
 }
 
@@ -283,11 +336,8 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 		return err
 	}
 
-	// get dashboardsid and set back Realname from Salt
-	// workaround for carring the sid here
+	// need to save dashboardsid in user.Realname as it's the only field long enough
 	dashboardSid := user.Realname
-	user.Realname = user.Salt
-	user.Salt = ""
 
 	var cachedUserOrg *models.UserOrg
 	refreshOrgs := false
@@ -300,32 +350,23 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 		user.UserID = dbUser.UserID
 		user.HasAdminRole = dbUser.HasAdminRole
 		fillEmailRealName(user)
-		if err2 := dao.ChangeUserProfile(*user, "Email", "Realname"); err2 != nil {
+		// ResetUUID field is used for saving the time authentication against Dashboard happening
+		if err2 := dao.ChangeUserProfile(*user, "Email", "Realname", "ResetUUID", "Password"); err2 != nil {
 			log.Warningf("Failed to update user profile, user: %s, error: %v", user.Username, err2)
 		}
 
-		// TODO: if organizations were got in 5 minutes skip refreshing
+		// if organizations were got in 5 minutes skip refreshing
 		cachedUserOrg, err = dao.GetUserOrg(user.UserID)
 		if err != nil {
 			return err
 		}
 
+		log.Debugf("cachedUserOrg.UpdateTime: %v", cachedUserOrg.UpdateTime)
+
 		if cachedUserOrg == nil {
 			log.Warningf("No cached organization info found for user %s", user.Username)
 			refreshOrgs = true
 		} else {
-			orgsCacheDur := 5 * time.Minute
-			cacheDurString := os.Getenv(envVarUserOrgsCacheDuration)
-			if cacheDurString != "" {
-				configuredDur, err := time.ParseDuration(cacheDurString)
-				if err != nil {
-					log.Warningf("invalid %s %s. will be ignored", envVarUserOrgsCacheDuration, cacheDurString)
-				} else {
-					orgsCacheDur = configuredDur
-					log.Debugf("%s: %v", envVarUserOrgsCacheDuration, configuredDur)
-				}
-			}
-
 			if time.Now().After(cachedUserOrg.UpdateTime.Add(orgsCacheDur)) {
 				log.Debugf("The cached organization info is older than %s for user %s. need to refresh", orgsCacheDur, user.Username)
 				refreshOrgs = true
@@ -379,7 +420,9 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 	changed, newOrgs, removedOrgs, updatedOrgs := compareOrgMaps(oldOrgs, freshOrgs)
 	if !changed {
 		log.Debugf("no changes in organization setting for user %s", user.Email)
-		return nil
+		// still need to update UserOrg to refresh UpdateTime so that it does not need to get orgs from dashboard
+		// upon every auth request after the cached is older than 5 mins.
+		return dao.UpdateUserOrg(mUserOrg)
 	}
 
 	err = mapOrgsToProjectsAndMembers(user, newOrgs, removedOrgs, updatedOrgs)
@@ -403,6 +446,35 @@ func (d *Auth) SearchUser(username string) (*models.User, error) {
 	return dao.GetUser(queryCondition)
 }
 
+func getDigest(value string) string {
+	// user.Password field's length is 40 chars. The sha1 hash is right fit to it.
+	// https://8gwifi.org/docs/go-hashing.jsp
+	// https://gist.github.com/sergiotapia/8263278
+	h := sha1.New()
+	h.Write([]byte(value))
+	bs := h.Sum(nil)
+	return fmt.Sprintf("%x", bs)
+}
+
+func getConfiguredDuration(envVarName string, defValue time.Duration) time.Duration {
+
+	desiredDur := defValue
+	configuredDurString := os.Getenv(envVarName)
+	if configuredDurString != "" {
+		configuredDur, err := time.ParseDuration(configuredDurString)
+		if err != nil {
+			log.Warningf("invalid %s %s. will be ignored", envVarName, configuredDurString)
+		} else {
+			desiredDur = configuredDur
+			log.Debugf("%s: %v", envVarName, configuredDur)
+		}
+	}
+	return desiredDur
+}
+
 func init() {
 	auth.Register(common.ARSDashboardAuth, &Auth{})
+
+	orgsCacheDur = getConfiguredDuration(envVarUserOrgsCacheDuration, 5*time.Minute)
+	userSessionDur = getConfiguredDuration(envVarUserSessionDuration, 10*time.Minute)
 }
