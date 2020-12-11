@@ -72,16 +72,14 @@ func (d *Auth) Authenticate(m models.AuthModel) (*models.User, error) {
 		return nil, err
 	}
 	if existing == nil {
-		log.Errorf("no user exists for %s", username)
+		log.Debugf("no user exists for %s", username)
 		return authAgainstBackend(useToken)
 	}
 
-	log.Debugf("got existing user: %+v", existing)
-	log.Debugf("existing user ResetUUID: %s", existing.ResetUUID) // time last auth happened
-	log.Debugf("existing user Password: %s", existing.Password)   // password or token hash
+	log.Debugf("existing user ResetUUID (last auth time against backend): %s", existing.ResetUUID) // time last auth happened
 
-	if existing.Password != getDegest(m.Password) {
-		log.Errorf("got different password.")
+	if existing.Password != getDigest(m.Password) {
+		log.Errorf("got different password")
 		return authAgainstBackend(useToken)
 	}
 
@@ -91,7 +89,7 @@ func (d *Auth) Authenticate(m models.AuthModel) (*models.User, error) {
 		return authAgainstBackend(useToken)
 	}
 	if time.Now().After(authTime.Add(userSessionDur)) {
-		log.Debugf("last auth time is earlier than %s", userSessionDur)
+		log.Debugf("last auth time against backend is earlier than %s", userSessionDur)
 		return authAgainstBackend(useToken)
 	}
 
@@ -251,7 +249,7 @@ func authenticateByPassword(m models.AuthModel) (*models.User, error) {
 		return nil, err
 	}
 
-	mUser := createUserObject(jsonBody, sid, getDegest(m.Password))
+	mUser := createUserObject(jsonBody, sid, getDigest(m.Password))
 
 	return mUser, nil
 }
@@ -302,7 +300,7 @@ func createUserObject(userData *gabs.Container, sid string, passwordHash string)
 	mUser.Role = 2
 	// }
 
-	// ARS-4919
+	// use ResetUUID to store last auth time against backend (ARS-4919)
 	mUser.ResetUUID = time.Now().Format(time.RFC3339)
 	return mUser
 }
@@ -352,7 +350,7 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 		user.UserID = dbUser.UserID
 		user.HasAdminRole = dbUser.HasAdminRole
 		fillEmailRealName(user)
-		// ResetUUID field is used for saving the time authentication happening
+		// ResetUUID field is used for saving the time authentication against Dashboard happening
 		if err2 := dao.ChangeUserProfile(*user, "Email", "Realname", "ResetUUID", "Password"); err2 != nil {
 			log.Warningf("Failed to update user profile, user: %s, error: %v", user.Username, err2)
 		}
@@ -363,7 +361,6 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 			return err
 		}
 
-		// TODO show cachedUserOrg.UpdateTime
 		log.Debugf("cachedUserOrg.UpdateTime: %v", cachedUserOrg.UpdateTime)
 
 		if cachedUserOrg == nil {
@@ -401,7 +398,6 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 		return err
 	}
 
-	// TODO set updateTime
 	mUserOrg := &models.UserOrg{
 		UserID: user.UserID,
 		Orgs:   string(jsonOrgs),
@@ -450,34 +446,19 @@ func (d *Auth) SearchUser(username string) (*models.User, error) {
 	return dao.GetUser(queryCondition)
 }
 
-// https://8gwifi.org/docs/go-hashing.jsp
-// https://gist.github.com/sergiotapia/8263278
-func getDegest(value string) string {
-	// The pattern for generating a hash is `sha1.New()`,
-	// `sha1.Write(bytes)`, then `sha1.Sum([]byte{})`.
-	// Here we start with a new hash.
+func getDigest(value string) string {
+	// user.Password field's length is 40 chars. The sha1 hash is right fit to it.
+	// https://8gwifi.org/docs/go-hashing.jsp
+	// https://gist.github.com/sergiotapia/8263278
 	h := sha1.New()
-
-	// `Write` expects bytes. If you have a string `s`,
-	// use `[]byte(s)` to coerce it to bytes.
 	h.Write([]byte(value))
-
-	// This gets the finalized hash result as a byte
-	// slice. The argument to `Sum` can be used to append
-	// to an existing byte slice: it usually isn't needed.
 	bs := h.Sum(nil)
-
-	// SHA1 values are often printed in hex, for example
-	// in git commits. Use the `%x` format verb to convert
-	// a hash results to a hex string.
-	// fmt.Println(s)
 	return fmt.Sprintf("%x", bs)
 }
 
 func getConfiguredDuration(envVarName string, defValue time.Duration) time.Duration {
 
 	desiredDur := defValue
-
 	configuredDurString := os.Getenv(envVarName)
 	if configuredDurString != "" {
 		configuredDur, err := time.ParseDuration(configuredDurString)
@@ -488,7 +469,6 @@ func getConfiguredDuration(envVarName string, defValue time.Duration) time.Durat
 			log.Debugf("%s: %v", envVarName, configuredDur)
 		}
 	}
-
 	return desiredDur
 }
 
@@ -496,5 +476,5 @@ func init() {
 	auth.Register(common.ARSDashboardAuth, &Auth{})
 
 	orgsCacheDur = getConfiguredDuration(envVarUserOrgsCacheDuration, 5*time.Minute)
-	userSessionDur = getConfiguredDuration(envVarUserSessionDuration, 2*time.Minute)
+	userSessionDur = getConfiguredDuration(envVarUserSessionDuration, 10*time.Minute)
 }

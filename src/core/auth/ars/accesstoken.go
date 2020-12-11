@@ -259,7 +259,7 @@ func checkAuthResponse(resp *http.Response, accessToken string) (user *models.Us
 		return
 	}
 
-	user = createUserObject(jsonBody, sid, getDegest(accessToken))
+	user = createUserObject(jsonBody, sid, getDigest(accessToken))
 
 	return
 }
