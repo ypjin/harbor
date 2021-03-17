@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/Jeffail/gabs"
 	"github.com/goharbor/harbor/src/common/models"
@@ -206,6 +207,10 @@ func authenticateByToken(m models.AuthModel) (*models.User, error) {
 	client := http.Client{}
 
 	req, err := http.NewRequest("GET", authURL, nil)
+	if err != nil {
+		log.Errorf("AuthenticateByToken: %v", err)
+		return nil, err
+	}
 	req.Header.Add("Authorization", "Bearer "+accessToken)
 
 	resp, err := client.Do(req)
@@ -245,11 +250,6 @@ func checkAuthResponse(resp *http.Response, accessToken string) (user *models.Us
 		log.Error("checkAuthResponse - dashboard returns false for success field")
 		err = errors.New("failed to authenticate with token against dashboard")
 		return
-	}
-
-	username := jsonBody.Path("result.username").Data().(string)
-	if username == "" {
-		username = jsonBody.Path("result.user.email").Data().(string)
 	}
 
 	sid := getSessionID(resp, jsonBody)
@@ -295,4 +295,140 @@ func getSessionID(resp *http.Response, body *gabs.Container) string {
 	}
 
 	return sid
+}
+
+func authenticateByDOSAToken(m models.AuthModel) (*models.User, error) {
+
+	log.Infof("verifying token against AxwayID...")
+	accessToken := m.Password
+	userContainer, err := verifyTokenByAxwayID(accessToken)
+	if err != nil {
+		log.Error(err)
+		return nil, err
+	}
+	userInfo := userContainer.Data().(map[string]interface{})
+
+	log.Debugf("verified token successfully against AxwayID for user %s", userInfo["preferred_username"])
+	return createUserForDOSA(userInfo, getDigest(accessToken))
+}
+
+func createUserForDOSA(userInfo map[string]interface{}, passwordHash string) (user *models.User, err error) {
+
+	// {
+	//     "sub":"745176bf-a2d1-4867-841f-60149434d765",
+	//     "org_guid":"5e97b4d3-a859-4b02-848f-7797381e1de1",
+	//     "email_verified":false,
+	//     "environmentId":"17ba6ab9d0844dc3a92925ae1fbf288e",
+	//     "sa_type":"DOSA",
+	//     "preferred_username":"service-account-dosa_17ba6ab9d0844dc3a92925ae1fbf288e",
+	//     "orgId":"300558949654437"
+	// }
+
+	user = &models.User{
+		Username: userInfo["preferred_username"].(string),
+		Password: passwordHash,
+		Email:    userInfo["preferred_username"].(string),
+		Realname: userInfo["preferred_username"].(string),
+		Salt:     userInfo["orgId"].(string),
+		Comment:  userTypeDOSA,
+	}
+
+	user.Rolename = roleNameDeveloper
+	user.HasAdminRole = false
+	user.Role = 2
+
+	// use ResetUUID to store last auth time against backend (ARS-4919)
+	user.ResetUUID = time.Now().Format(time.RFC3339)
+
+	return
+}
+
+// curl -v \
+// -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJUNXJfaUwwbWJXUWpFQS1JcWNDSkFKaXlia0k4V2xrUnd0YVFQV0ZlWjJJIn0.eyJqdGkiOiI0NDY5ZTQ4OC0yYjM5LTQ0YjQtODM2Yy1hMTI5NDI1OTMzY2QiLCJleHAiOjE1NTEyMzIwNzQsIm5iZiI6MCwiaWF0IjoxNTUxMjMwMjc0LCJpc3MiOiJodHRwczovL2xvZ2luLXByZXByb2QuYXh3YXkuY29tL2F1dGgvcmVhbG1zL0Jyb2tlciIsImF1ZCI6ImFtcGxpZnktY2xpIiwic3ViIjoiMThjNTkwMmYtMzNlYi00YWVjLTlkZDktNjgxZGYzMGVjNjU1IiwidHlwIjoiQmVhcmVyIiwiYXpwIjoiYW1wbGlmeS1jbGkiLCJhdXRoX3RpbWUiOjE1NTEyMzAyNjEsInNlc3Npb25fc3RhdGUiOiJiYmFhYjFhNy0yMWZlLTRjZjYtYjllMS0xMjA4MDI0NmE0MDUiLCJhY3IiOiIwIiwiYWxsb3dlZC1vcmlnaW5zIjpbIiJdLCJyZWFsbV9hY2Nlc3MiOnsicm9sZXMiOlsiYWRtaW5pc3RyYXRvciIsInVtYV9hdXRob3JpemF0aW9uIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnsiYnJva2VyIjp7InJvbGVzIjpbInJlYWQtdG9rZW4iXX0sImFjY291bnQiOnsicm9sZXMiOlsibWFuYWdlLWFjY291bnQiLCJtYW5hZ2UtYWNjb3VudC1saW5rcyIsInZpZXctcHJvZmlsZSJdfX0sIm5hbWUiOiJZdXBpbmcgSmluIiwicHJlZmVycmVkX3VzZXJuYW1lIjoieWppbkBheHdheS5jb20iLCJnaXZlbl9uYW1lIjoiWXVwaW5nIiwiZmFtaWx5X25hbWUiOiJKaW4iLCJlbWFpbCI6InlqaW5AYXh3YXkuY29tIn0.Yr39yv4oOqcVs6-lnCQmlLdUr2kPxcV-3VNpJh74DIElVx5s-wkrNi6UKpqVA_k5nSfQskY2swD-aFi-_DObSImHxKCcCAXwIINYOAFpJPCLMnPTD9_x2hLsfVrgHkPvMtaGI0iofgbrDOBxvdzdbjj7qfpKqZ2aLjSZVJHMrGS3H2zDhBxaHTjMRRf8Ry6DFKPWkBZhFa8l8aqG52PbA-RAyP9_xgg0P-DUvFMhxsCrb73tne0DSr4jfp0otxrIpEKG_Eq-FZu-WGiHG052wxmATxYnCHYAE2zsvk7lWUOiL85AfMblz_4AJbdUUgZ_CdD7603h8JL6xZdFSD-tww" \
+// https://login-preprod.axway.com/auth/realms/Broker/protocol/openid-connect/userinfo
+
+// < HTTP/1.1 200 OK
+// < Content-Type: application/json
+// < Date: Wed, 27 Feb 2019 01:28:02 GMT
+// < Content-Length: 171
+// < Connection: keep-alive
+// <
+// * Connection #0 to host login-preprod.axway.com left intact
+// {
+//     "sub": "18c5902f-33eb-4aec-9dd9-681df30ec655",
+//     "name": "Yuping Jin",
+//     "preferred_username": "yjin@axway.com",
+//     "given_name": "Yuping",
+//     "family_name": "Jin",
+//     "email": "yjin@axway.com"
+// }
+
+// < HTTP/1.1 401 Unauthorized
+// < Content-Type: application/json
+// < Date: Wed, 27 Feb 2019 01:30:55 GMT
+// < Content-Length: 82
+// < Connection: keep-alive
+// <
+// * Connection #0 to host login-preprod.axway.com left intact
+// {
+//     "error": "invalid_token",
+//     "error_description": "Token invalid: Token is not active"
+// }
+
+// < HTTP/1.1 401 Unauthorized
+// < Content-Type: application/json
+// < Date: Wed, 27 Feb 2019 01:32:33 GMT
+// < Content-Length: 82
+// < Connection: keep-alive
+// <
+// * Connection #0 to host login-preprod.axway.com left intact
+// {
+//     "error": "invalid_token",
+//     "error_description": "Token invalid: Failed to parse JWT"
+// }
+func verifyTokenByAxwayID(accessToken string) (*gabs.Container, error) {
+
+	hostAxwayID := os.Getenv("AXWAYID_HOST")
+	userInfoPathAID := os.Getenv("AXWAYID_USERINFOPATH")
+
+	log.Debugf("verifyTokenByAxwayID - Verify access token against AxwayID at " + hostAxwayID + userInfoPathAID)
+	authURL := hostAxwayID + userInfoPathAID
+
+	client := http.Client{}
+
+	req, err := http.NewRequest("GET", authURL, nil)
+	if err != nil {
+		log.Errorf("verifyTokenByAxwayID: %v", err)
+		return nil, err
+	}
+	req.Header.Add("Authorization", "Bearer "+accessToken)
+
+	resp, err := client.Do(req)
+
+	if err != nil {
+		log.Errorf("verifyTokenByAxwayID: %v", err)
+		return nil, err
+	}
+
+	if resp.StatusCode != 200 {
+		err = fmt.Errorf("failed to verify token against AxwayID. response code %v", resp.StatusCode)
+		log.Errorf("verifyTokenByAxwayID: %v", err)
+		return nil, err
+	}
+
+	log.Debugf("verifyTokenByAxwayID - Verified through AxwayID successfully.")
+	bodyBuf, err := ioutil.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		log.Errorf("verifyTokenByAxwayID - failed to read response body. %v", err)
+		return nil, err
+	}
+
+	jsonBody, err := gabs.ParseJSON(bodyBuf)
+	if err != nil {
+		log.Errorf("verifyTokenByAxwayID - failed to parse response body. %v", err)
+		return nil, err
+	}
+
+	return jsonBody, nil
 }

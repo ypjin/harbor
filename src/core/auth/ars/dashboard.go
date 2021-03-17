@@ -27,6 +27,7 @@ const (
 	roleNameDeveloper           = "developer"
 	envVarUserOrgsCacheDuration = "USER_ORGS_CACHE_DURATION"
 	envVarUserSessionDuration   = "USER_SESSION_DURATION"
+	userTypeDOSA                = "DOSA"
 )
 
 var (
@@ -44,8 +45,12 @@ func (d *Auth) Authenticate(m models.AuthModel) (*models.User, error) {
 
 	username := m.Principal
 	useToken := false
-	authAgainstBackend := func(useToken bool) (*models.User, error) {
+	dosa := false // for DOSA service account
+	authAgainstBackend := func(useToken bool, dosa bool) (*models.User, error) {
 		if useToken {
+			if dosa {
+				return authenticateByDOSAToken(m)
+			}
 			return authenticateByToken(m)
 		}
 		return authenticateByPassword(m)
@@ -59,6 +64,11 @@ func (d *Auth) Authenticate(m models.AuthModel) (*models.User, error) {
 		mapClaims := parsedToken.Claims.(jwt.MapClaims)
 		username := mapClaims["preferred_username"].(string)
 		log.Debugf("username got from token: %s", username)
+		if saType, ok := mapClaims["sa_type"]; ok {
+			if saType == userTypeDOSA {
+				dosa = true
+			}
+		}
 	} else {
 		log.Debug("Password is provided, authenticating with password...")
 	}
@@ -73,24 +83,24 @@ func (d *Auth) Authenticate(m models.AuthModel) (*models.User, error) {
 	}
 	if existing == nil {
 		log.Debugf("no user exists for %s", username)
-		return authAgainstBackend(useToken)
+		return authAgainstBackend(useToken, dosa)
 	}
 
 	log.Debugf("existing user ResetUUID (last auth time against backend): %s", existing.ResetUUID) // time last auth happened
 
 	if existing.Password != getDigest(m.Password) {
 		log.Errorf("got different password")
-		return authAgainstBackend(useToken)
+		return authAgainstBackend(useToken, dosa)
 	}
 
 	authTime, err := time.Parse(time.RFC3339, existing.ResetUUID)
 	if err != nil {
 		log.Errorf("error parsing ResetUUID as time. %v", err)
-		return authAgainstBackend(useToken)
+		return authAgainstBackend(useToken, dosa)
 	}
 	if time.Now().After(authTime.Add(userSessionDur)) {
 		log.Debugf("last auth time against backend is earlier than %s", userSessionDur)
-		return authAgainstBackend(useToken)
+		return authAgainstBackend(useToken, dosa)
 	}
 
 	return existing, nil
@@ -316,7 +326,9 @@ func (d *Auth) OnBoardUser(user *models.User) error {
 		user.Password = "1234567ab"
 	}
 	fillEmailRealName(user)
-	user.Comment = "From Amplify Dashboard"
+	if len(user.Comment) == 0 {
+		user.Comment = "From Amplify Dashboard"
+	}
 	return dao.OnBoardUser(user)
 }
 
@@ -363,15 +375,20 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 
 		log.Debugf("cachedUserOrg.UpdateTime: %v", cachedUserOrg.UpdateTime)
 
-		if cachedUserOrg == nil {
-			log.Warningf("No cached organization info found for user %s", user.Username)
-			refreshOrgs = true
+		if user.Comment == userTypeDOSA {
+			// no need to refresh org for DOSA account. Dashboard doesn't support it.
+			refreshOrgs = false
 		} else {
-			if time.Now().After(cachedUserOrg.UpdateTime.Add(orgsCacheDur)) {
-				log.Debugf("The cached organization info is older than %s for user %s. need to refresh", orgsCacheDur, user.Username)
+			if cachedUserOrg == nil {
+				log.Warningf("No cached organization info found for user %s", user.Username)
 				refreshOrgs = true
 			} else {
-				log.Debugf("The cached organization info is not older than %s for user %s. no need to refresh", orgsCacheDur, user.Username)
+				if time.Now().After(cachedUserOrg.UpdateTime.Add(orgsCacheDur)) {
+					log.Debugf("The cached organization info is older than %s for user %s. need to refresh", orgsCacheDur, user.Username)
+					refreshOrgs = true
+				} else {
+					log.Debugf("The cached organization info is not older than %s for user %s. no need to refresh", orgsCacheDur, user.Username)
+				}
 			}
 		}
 	}
@@ -380,12 +397,29 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 		return nil
 	}
 
-	// user.Salt keeps the session ID of dashboard
-	haveAccess, freshOrgs, err := getAndVerifyOrgInfoFrom360(user.Username, dashboardSid)
-	if err != nil {
-		log.Error(err)
-		return err
+	var haveAccess bool
+	var freshOrgs map[string]Org
+
+	// FOR DOSA account orgId is included in the user info got from AxwayID and saved in user.Salt.
+	if user.Comment == userTypeDOSA {
+		// assure it has access to all clusters. Dashboard does not support authorization for DOSA.
+		haveAccess = true
+		freshOrgs = map[string]Org{}
+		orgToSave := Org{
+			ID:       user.Salt,
+			Name:     "to be retrived from dashboard",
+			Admin:    false,
+			ARSAdmin: true,
+		}
+		freshOrgs[orgToSave.ID] = orgToSave
+	} else {
+		haveAccess, freshOrgs, err = getAndVerifyOrgInfoFrom360(user.Username, dashboardSid)
+		if err != nil {
+			log.Error(err)
+			return err
+		}
 	}
+
 	if !haveAccess {
 		log.Errorf("PostAuthenticate - user's organizations do not have access to this domain")
 		err = errors.New("No access to this domain")
