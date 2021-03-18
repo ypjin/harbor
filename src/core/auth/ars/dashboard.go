@@ -403,13 +403,13 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 
 	// FOR DOSA account orgId is included in the user info got from AxwayID and saved in user.Salt.
 	if user.Comment == userTypeDOSA {
-		// assure it has access to all clusters. Dashboard does not support authorization for DOSA.
+		// assume it has access to all clusters. Dashboard does not support authorization for DOSA.
 		log.Debugf("compose organization data for %s service account", userTypeDOSA)
 		haveAccess = true
 		freshOrgs = map[string]Org{}
 		orgToSave := Org{
 			ID:       user.Salt,
-			Name:     "to be retrived from dashboard",
+			Name:     "unkown",
 			Admin:    false,
 			ARSAdmin: true,
 		}
