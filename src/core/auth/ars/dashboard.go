@@ -375,11 +375,6 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 
 		log.Debugf("cachedUserOrg.UpdateTime: %v", cachedUserOrg.UpdateTime)
 
-		// if user.Comment == userTypeDOSA {
-		// 	// no need to refresh org for DOSA account. Dashboard doesn't support it.
-		// 	log.Debugf("will not refresh orgs for %s service account", userTypeDOSA)
-		// 	refreshOrgs = false
-		// } else {
 		if cachedUserOrg == nil {
 			log.Warningf("No cached organization info found for user %s", user.Username)
 			refreshOrgs = true
@@ -391,7 +386,6 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 				log.Debugf("The cached organization info is not older than %s for user %s. no need to refresh", orgsCacheDur, user.Username)
 			}
 		}
-		// }
 	}
 
 	if !refreshOrgs {
