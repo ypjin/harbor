@@ -407,9 +407,16 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 		log.Debugf("compose organization data for %s service account", userTypeDOSA)
 		haveAccess = true
 		freshOrgs = map[string]Org{}
+
+		//DOSA organization info should be retrieved from dashboard.
+		orgName, _ := queryOrgInfoFrom360(user.Salt)
+		if orgName == "" {
+			orgName = "unknown"
+		}
+
 		orgToSave := Org{
 			ID:       user.Salt,
-			Name:     "unkown",
+			Name:     orgName,
 			Admin:    false,
 			ARSAdmin: true,
 		}
@@ -424,7 +431,7 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 
 	if !haveAccess {
 		log.Errorf("PostAuthenticate - user's organizations do not have access to this domain")
-		err = errors.New("No access to this domain")
+		err = errors.New("no access to this domain")
 		return err
 	}
 
@@ -506,6 +513,82 @@ func getConfiguredDuration(envVarName string, defValue time.Duration) time.Durat
 		}
 	}
 	return desiredDur
+}
+
+// Get organization information by orgId
+func queryOrgInfoFrom360(orgId string) (string, error) {
+
+	//curl -H "X-Auth-Token: Ko6rzjm534TntC5P7wkKV6sz0j40ma5X" https://platform-preprod.axwaytest.net/api/v1/org/300558949654437
+	/*
+	   {
+	       "success": true,
+	       "result": {
+	           "_id": "5c13bbacd9eaec33bbd3a5a3",
+	           "name": "Axway",
+	           "signup_origin": "360",
+	           "active": true,
+	           ...
+	       }
+	   }
+	*/
+
+	host360 := os.Getenv("DASHBOARD_HOST")
+	orgQueryPath360 := os.Getenv("DASHBOARD_ORGQUERYPATH")
+	xAuthToken := os.Getenv("DASHBOARD_X_AUTH_TOKEN")
+
+	orgQueryURL := host360 + orgQueryPath360 + "/" + orgId
+	log.Debug("queryOrgInfoFrom360 - query organization info by orgId from " + orgQueryURL)
+
+	//https://webcache.googleusercontent.com/search?q=cache:OVK76hrG4T8J:https://medium.com/%40nate510/don-t-use-go-s-default-http-client-4804cb19f779+&cd=4&hl=en&ct=clnk&gl=jp
+	client := http.Client{}
+	req, err := http.NewRequest("GET", orgQueryURL, nil)
+	if err != nil {
+		log.Errorf("queryOrgInfoFrom360 - failed to get organization info from dashboard. %v", err)
+		return "", err
+	}
+	req.Header.Add("X-Auth-Token", xAuthToken)
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Errorf("queryOrgInfoFrom360 - failed to get organization info from dashboard. %v", err)
+		return "", err
+	}
+	//log.Debugf("resp: %v", resp)
+
+	if resp.StatusCode == 401 {
+		log.Warning("queryOrgInfoFrom360 - failed to query organization information. auth failure")
+		err = errors.New("failed to get organization information. Auth failure")
+		return "", err
+	}
+
+	if resp.StatusCode != 200 {
+		log.Debugf("queryOrgInfoFrom360 - dashboard returns status %s", resp.Status)
+		err = errors.New("failed to query organization info by orgId")
+		return "", err
+	}
+
+	bodyBuf, err := ioutil.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		log.Errorf("queryOrgInfoFrom360 - failed to read response body. %v", err)
+		return "", err
+	}
+
+	jsonBody, err := gabs.ParseJSON(bodyBuf)
+	if err != nil {
+		log.Errorf("queryOrgInfoFrom360 - failed to parse response body. %v", err)
+		return "", err
+	}
+
+	success := jsonBody.Path("success").Data().(bool)
+	if !success {
+		log.Error("queryOrgInfoFrom360 - dashboard returns false for success field")
+		err = errors.New("failed to get organization info")
+		return "", err
+	}
+
+	return jsonBody.Path("result.name").Data().(string), nil
 }
 
 func init() {
