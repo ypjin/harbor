@@ -27,6 +27,7 @@ const (
 	roleNameDeveloper           = "developer"
 	envVarUserOrgsCacheDuration = "USER_ORGS_CACHE_DURATION"
 	envVarUserSessionDuration   = "USER_SESSION_DURATION"
+	userTypeDOSA                = "DOSA"
 )
 
 var (
@@ -44,8 +45,12 @@ func (d *Auth) Authenticate(m models.AuthModel) (*models.User, error) {
 
 	username := m.Principal
 	useToken := false
-	authAgainstBackend := func(useToken bool) (*models.User, error) {
+	dosa := false // for DOSA service account
+	authAgainstBackend := func(useToken bool, dosa bool) (*models.User, error) {
 		if useToken {
+			if dosa {
+				return authenticateByDOSAToken(m)
+			}
 			return authenticateByToken(m)
 		}
 		return authenticateByPassword(m)
@@ -59,6 +64,11 @@ func (d *Auth) Authenticate(m models.AuthModel) (*models.User, error) {
 		mapClaims := parsedToken.Claims.(jwt.MapClaims)
 		username := mapClaims["preferred_username"].(string)
 		log.Debugf("username got from token: %s", username)
+		if saType, ok := mapClaims["sa_type"]; ok {
+			if saType == userTypeDOSA {
+				dosa = true
+			}
+		}
 	} else {
 		log.Debug("Password is provided, authenticating with password...")
 	}
@@ -73,24 +83,24 @@ func (d *Auth) Authenticate(m models.AuthModel) (*models.User, error) {
 	}
 	if existing == nil {
 		log.Debugf("no user exists for %s", username)
-		return authAgainstBackend(useToken)
+		return authAgainstBackend(useToken, dosa)
 	}
 
 	log.Debugf("existing user ResetUUID (last auth time against backend): %s", existing.ResetUUID) // time last auth happened
 
 	if existing.Password != getDigest(m.Password) {
 		log.Errorf("got different password")
-		return authAgainstBackend(useToken)
+		return authAgainstBackend(useToken, dosa)
 	}
 
 	authTime, err := time.Parse(time.RFC3339, existing.ResetUUID)
 	if err != nil {
 		log.Errorf("error parsing ResetUUID as time. %v", err)
-		return authAgainstBackend(useToken)
+		return authAgainstBackend(useToken, dosa)
 	}
 	if time.Now().After(authTime.Add(userSessionDur)) {
 		log.Debugf("last auth time against backend is earlier than %s", userSessionDur)
-		return authAgainstBackend(useToken)
+		return authAgainstBackend(useToken, dosa)
 	}
 
 	return existing, nil
@@ -316,7 +326,9 @@ func (d *Auth) OnBoardUser(user *models.User) error {
 		user.Password = "1234567ab"
 	}
 	fillEmailRealName(user)
-	user.Comment = "From Amplify Dashboard"
+	if len(user.Comment) == 0 {
+		user.Comment = "From Amplify Dashboard"
+	}
 	return dao.OnBoardUser(user)
 }
 
@@ -380,15 +392,40 @@ func (d *Auth) PostAuthenticate(user *models.User) error {
 		return nil
 	}
 
-	// user.Salt keeps the session ID of dashboard
-	haveAccess, freshOrgs, err := getAndVerifyOrgInfoFrom360(user.Username, dashboardSid)
-	if err != nil {
-		log.Error(err)
-		return err
+	var haveAccess bool
+	var freshOrgs map[string]Org
+
+	// FOR DOSA account orgId is included in the user info got from AxwayID and saved in user.Salt.
+	if user.Comment == userTypeDOSA {
+		// assume it has access to all clusters. Dashboard does not support authorization for DOSA.
+		log.Debugf("compose organization data for %s service account", userTypeDOSA)
+		haveAccess = true
+		freshOrgs = map[string]Org{}
+
+		//DOSA organization info should be retrieved from dashboard.
+		orgName, _ := queryOrgInfoFrom360(user.Salt)
+		if orgName == "" {
+			orgName = "unknown"
+		}
+
+		orgToSave := Org{
+			ID:       user.Salt,
+			Name:     orgName,
+			Admin:    false,
+			ARSAdmin: true,
+		}
+		freshOrgs[orgToSave.ID] = orgToSave
+	} else {
+		haveAccess, freshOrgs, err = getAndVerifyOrgInfoFrom360(user.Username, dashboardSid)
+		if err != nil {
+			log.Error(err)
+			return err
+		}
 	}
+
 	if !haveAccess {
 		log.Errorf("PostAuthenticate - user's organizations do not have access to this domain")
-		err = errors.New("No access to this domain")
+		err = errors.New("no access to this domain")
 		return err
 	}
 
@@ -470,6 +507,82 @@ func getConfiguredDuration(envVarName string, defValue time.Duration) time.Durat
 		}
 	}
 	return desiredDur
+}
+
+// Get organization information by orgId
+func queryOrgInfoFrom360(orgId string) (string, error) {
+
+	//curl -H "X-Auth-Token: Ko6rzjm534TntC5P7wkKV6sz0j40ma5X" https://platform-preprod.axwaytest.net/api/v1/org/300558949654437
+	/*
+	   {
+	       "success": true,
+	       "result": {
+	           "_id": "5c13bbacd9eaec33bbd3a5a3",
+	           "name": "Axway",
+	           "signup_origin": "360",
+	           "active": true,
+	           ...
+	       }
+	   }
+	*/
+
+	host360 := os.Getenv("DASHBOARD_HOST")
+	orgQueryPath360 := os.Getenv("DASHBOARD_ORGQUERYPATH")
+	xAuthToken := os.Getenv("DASHBOARD_X_AUTH_TOKEN")
+
+	orgQueryURL := host360 + orgQueryPath360 + "/" + orgId
+	log.Debug("queryOrgInfoFrom360 - query organization info by orgId from " + orgQueryURL)
+
+	//https://webcache.googleusercontent.com/search?q=cache:OVK76hrG4T8J:https://medium.com/%40nate510/don-t-use-go-s-default-http-client-4804cb19f779+&cd=4&hl=en&ct=clnk&gl=jp
+	client := http.Client{}
+	req, err := http.NewRequest("GET", orgQueryURL, nil)
+	if err != nil {
+		log.Errorf("queryOrgInfoFrom360 - failed to get organization info from dashboard. %v", err)
+		return "", err
+	}
+	req.Header.Add("X-Auth-Token", xAuthToken)
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Errorf("queryOrgInfoFrom360 - failed to get organization info from dashboard. %v", err)
+		return "", err
+	}
+	//log.Debugf("resp: %v", resp)
+
+	if resp.StatusCode == 401 {
+		log.Warning("queryOrgInfoFrom360 - failed to query organization information. auth failure")
+		err = errors.New("failed to get organization information. Auth failure")
+		return "", err
+	}
+
+	if resp.StatusCode != 200 {
+		log.Debugf("queryOrgInfoFrom360 - dashboard returns status %s", resp.Status)
+		err = errors.New("failed to query organization info by orgId")
+		return "", err
+	}
+
+	bodyBuf, err := ioutil.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		log.Errorf("queryOrgInfoFrom360 - failed to read response body. %v", err)
+		return "", err
+	}
+
+	jsonBody, err := gabs.ParseJSON(bodyBuf)
+	if err != nil {
+		log.Errorf("queryOrgInfoFrom360 - failed to parse response body. %v", err)
+		return "", err
+	}
+
+	success := jsonBody.Path("success").Data().(bool)
+	if !success {
+		log.Error("queryOrgInfoFrom360 - dashboard returns false for success field")
+		err = errors.New("failed to get organization info")
+		return "", err
+	}
+
+	return jsonBody.Path("result.name").Data().(string), nil
 }
 
 func init() {
