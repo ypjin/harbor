@@ -163,7 +163,7 @@ func checkOrgs(orgArray []interface{}) (orgs map[string]Org, haveAccess bool) {
 	thisEnvHost := re.ReplaceAllString(thisEnvAdminURL, "")
 	thisEnv2ndHost := re.ReplaceAllString(thisEnv2ndAdminURL, "")
 
-	log.Debugf("check if user's organizations have access to this domain: %s", thisEnvHost)
+	log.Debugf("check if user's organizations have access to this domain: %s and %s", thisEnvHost, thisEnv2ndHost)
 
 	orgs = map[string]Org{} //organizations which can access this domain (deployment)
 	userOrgIds := []string{}
